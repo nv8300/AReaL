@@ -37,7 +37,7 @@ python3 -u math_eval.py \
     --end -1 \
     --use_vllm \
     --max_tokens_per_call=$MAX_GEN_TOKENS \
-    --data_parallel_size 8 \
+    --data_parallel_size 2 \
     --save_outputs \
     # --overwrite \
 
