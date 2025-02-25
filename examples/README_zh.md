@@ -92,8 +92,17 @@ wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data
 wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/id2info.json?download=true
 ```
 
+如果无法访问 `huggingface.co`，也可以从 ModelScope 下载：
+```bash
+mkdir -p /storage/datasets/
+cd /storage/datasets/
+wget https://www.modelscope.cn/datasets/inclusionAI/AReaL-RL-Data/resolve/master/data/prompts_for_r1_distilled.jsonl
+wget https://www.modelscope.cn/datasets/inclusionAI/AReaL-RL-Data/resolve/master/data/prompts_for_zero.jsonl
+wget https://www.modelscope.cn/datasets/inclusionAI/AReaL-RL-Data/resolve/master/data/id2info.json
+```
+
 ## 模型
-我们基于开源模型进行训练，该模型可以从 HuggingFace Hub 直接下载：
+我们基于开源模型进行训练，该模型可以从 HuggingFace Hub 直接下载（请确保已经安装了 Git LFS）：
 
 ```
 mkdir -p /storage/models
@@ -103,6 +112,16 @@ GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-D
 ```
 
 你也可以在安装 PyPI 和 huggingface_hub 后利用 huggingface CLI 进行下载，具体请参考[官方文档](https://huggingface.co/docs/huggingface_hub/guides/cli)
+
+如果无法访问 `huggingface.co`，也可以从 ModelScope 下载（请确保已经安装了 Git LFS）：
+
+```
+mkdir -p /storage/models
+cd /storage/models
+git clone https://www.modelscope.cn/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B.git
+git clone https://www.modelscope.cn/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B.git
+```
+
 
 ## 启动 Ray 集群
 
@@ -119,7 +138,7 @@ docker run -d --name r1-ray-head --privileged --gpus all --network host --shm-si
 ```bash
 # RAY_HEAD_IP 是第一个节点的 IP
 RAY_HEAD_IP=xxx.xxx.xxx.xxx
-docker run -d  r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
+docker run -d --name r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
 ```
 
 全部启动完成后，在第一个节点上通过 docker exec 进入容器，查看 Ray 集群的状态：

@@ -87,7 +87,7 @@ wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data
 
 ## Model
 
-We train based on open-source models, which can be downloaded directly from HuggingFaceHub:
+We train based on open-source models, which can be downloaded directly from HuggingFaceHub (Please ensure that Git LFS is installed):
 
 ```
 mkdir -p /storage/models
@@ -113,7 +113,7 @@ On all other nodes, start the Ray Worker with the following command (skip this s
 ```bash
 # RAY_HEAD_IP is the IP of the first node
 RAY_HEAD_IP=xxx.xxx.xxx.xxx
-docker run -d  r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
+docker run -d --name r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
 ```
 
 Once all nodes are up, check the Ray cluster status by entering the container on the first node:
