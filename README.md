@@ -167,7 +167,12 @@ Based on AReaL, our team is also actively exploring the research frontier of LRM
 
 
 ## Acknowledgement
-Finally, we would like to remark that major contributors are from the **Institute for Interdisciplinary Information Sciences, Tsinghua University**. We also appreciate all the pioneer works from the community, particularly the [ReaLHF](https://github.com/openpsi-project/ReaLHF) project from OpenPsi Inc. and those other projects, including but not limited to, [DeepScaleR](https://github.com/agentica-project/deepscaler), [Open-Reasoner-Zero](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero/tree/main), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [VeRL](https://github.com/volcengine/verl).
+
+We would like to remark that major contributors are from the **Institute for Interdisciplinary Information Sciences, Tsinghua University**.
+
+Our team has received invaluable assistance from the Super Computing Technology (SCT) team at Ant Group, particularly in the realm of large-scale cluster operations and maintenance. Their expertise and support have been instrumental in our efforts, and we are deeply grateful for their contributions.
+
+We also appreciate all the pioneer works from the community, particularly the [ReaLHF](https://github.com/openpsi-project/ReaLHF) project from OpenPsi Inc. and those other projects, including but not limited to, [DeepScaleR](https://github.com/agentica-project/deepscaler), [Open-Reasoner-Zero](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero/tree/main), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [VeRL](https://github.com/volcengine/verl).
 
 ## Citation
 
