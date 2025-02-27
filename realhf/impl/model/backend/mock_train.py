@@ -132,9 +132,7 @@ class MockTrainEngine(model_api.PipelinableEngine):
             sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
         )
         if token_normalize_scope == "global":
-            total_loss_weight = dist.all_reduce(
-                total_loss_weight, group=constants.data_parallel_group()
-            )
+            dist.all_reduce(total_loss_weight, group=constants.data_parallel_group())
         if total_loss_weight == 0:
             raise model_api.ZeroTotalLossWeightException(
                 "The sum of loss weights of all micro batches is zero."

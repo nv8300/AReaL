@@ -664,7 +664,6 @@ class PipeTrainInstrSetForMegatron(PipeTrainInstrSet):
             loss: torch.Tensor = tensor_buffer.get(
                 "losses", micro_batch_id, remove=True
             )
-            loss = self.engine.optim.scale_loss(loss)
             loss.backward()
             tensor_buffer.put("losses", micro_batch_id, loss.detach().clone())
             return
@@ -777,7 +776,7 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
                 sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
             )
             if token_normalize_scope == "global":
-                total_loss_weight = dist.all_reduce(
+                dist.all_reduce(
                     total_loss_weight, group=constants.data_parallel_group()
                 )
             if total_loss_weight == 0:
@@ -813,10 +812,15 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
                 loss, _stat = loss_fn(model_output, mb_input)
                 loss_scale = loss_weight_fn(mb_inputs[i]) / total_loss_weight
                 if token_normalize_scope == "global":
+                    # Megatron will average gradients across DP ranks.
+                    # If we normalize loss across micro batches of all DP ranks,
+                    # we should revert the effect of gradient averaging in megatron
+                    # to make sure loss from each token is scaled properly.
                     loss_scale *= constants.data_parallel_world_size()
+                loss_scale *= self.engine.optim.get_loss_scale()
                 loss *= loss_scale
                 with cuda_tmarked("bwd", CUDATimeMarkType.backward):
-                    self.engine.optim.scale_loss(loss).backward()
+                    loss.backward()
                 for k, v in _stat.items():
                     stat[k] += v
 

@@ -89,6 +89,7 @@ def compute_packed_sft_loss(
 
 
 class SFTInterface(model_api.ModelInterface):
+    token_normalize_scope: Literal["global", "dp"] = "global"
 
     def train_step(
         self, model: model_api.Model, data: SequenceSample, mb_spec: MicroBatchSpec
@@ -100,8 +101,10 @@ class SFTInterface(model_api.ModelInterface):
         stat = module.train_batch(
             input_=data,
             loss_fn=compute_packed_sft_loss,
-            loss_weight_fn=lambda: 1,
-            token_normalize_scope="dp",
+            loss_weight_fn=lambda x: x.data["prompt_mask"]
+            .logical_not()
+            .count_nonzero(),
+            token_normalize_scope=self.token_normalize_scope,
             mb_spec=mb_spec,
             version_steps=model.version.global_step,
         )

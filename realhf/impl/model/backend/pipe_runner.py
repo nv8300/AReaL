@@ -754,6 +754,7 @@ class PipeTrainForwardCommInstrSet:
 
 @dataclasses.dataclass
 class PipeTrainInstrSet:
+    engine: Any
 
     def _exec_optimizer_step(self, *args, **kwargs):
         raise NotImplementedError()
@@ -1013,9 +1014,7 @@ class PipelineRunner:
             sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
         )
         if token_normalize_scope == "global":
-            total_loss_weight = dist.all_reduce(
-                total_loss_weight, group=constants.data_parallel_group()
-            )
+            dist.all_reduce(total_loss_weight, group=constants.data_parallel_group())
 
         if constants.parallelism_rank() == 0:
             logger.info(
@@ -1031,7 +1030,12 @@ class PipelineRunner:
             tensor_buffer.put("n_pp_mbs", i, n_pp_mbs)
             loss_scale = loss_weight_fn(mb_inputs[i]) / total_loss_weight
             if token_normalize_scope == "global":
+                # Megatron will average gradients across DP ranks.
+                # If we normalize loss across micro batches of all DP ranks,
+                # we should revert the effect of gradient averaging in megatron
+                # to make sure loss from each token is scaled properly.
                 loss_scale *= constants.data_parallel_world_size()
+            loss_scale *= instr_set.engine.optim.get_loss_scale()
             tensor_buffer.put("loss_scale", i, loss_scale)
             tensor_buffer.put("version_steps", i, version_steps)
             tensor_buffer.put("loss_fn", i, loss_fn)
