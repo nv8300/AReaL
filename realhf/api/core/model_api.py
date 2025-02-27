@@ -27,6 +27,10 @@ from realhf.base.recover import StepInfo
 logger = logging.getLogger("model_api")
 
 
+class ZeroTotalLossWeightException(Exception):
+    pass
+
+
 @dataclasses.dataclass
 class GenerationHyperparameters:
     """Generation hyperparameters.
@@ -334,7 +338,9 @@ class PipelinableEngine(abc.ABC):
         input_: SequenceSample,
         mb_spec: MicroBatchSpec,
         loss_fn: Callable[[torch.Tensor, SequenceSample], Tuple[torch.Tensor, Dict]],
+        loss_weight_fn: Callable[[torch.Tensor, SequenceSample], float],
         version_steps: int,
+        token_normalize_scope: Literal["global", "dp"] = "global",
     ) -> Tuple[torch.Tensor, Dict] | None:
         """Update the model with a batch of data and a loss function.
 
@@ -345,6 +351,10 @@ class PipelinableEngine(abc.ABC):
         :param loss_fn: The loss function. It takes the output of the forward pass and the
             input data, returning the loss and a dictionary of statistics.
         :type loss_fn: Callable[[torch.Tensor, SequenceSample], Tuple[torch.Tensor, Dict]]
+        :param loss_weight_fn: This function is used to calculate the number of valid tokens
+            when normalizing loss across micro batches and DP ranks. Can be `lambda: 1`
+            if just taking the average over batches.
+        :type loss_weight_fn: Callable[[torch.Tensor, SequenceSample], float]
         :param version_steps: The global step counter for this experiment,
             used by the backend to determine the learning rate schedule.
         :type version_steps: int
@@ -354,6 +364,11 @@ class PipelinableEngine(abc.ABC):
             which automatically schedules the forward and backward passes. For non-pipelined
             training, forward and backward passes are executed iteratively over mini-batches
             to accumulate gradients. If None, the batch will not be split.
+        :param global_normalize_scope: The scope of token-wise loss normalization. Choices:
+            global: average across all micro batches across DP ranks.
+            dp: average across micro batches in current DP rank.
+            Default to "global".
+        :type global_normalize_scope: Literal["global", "dp"]
         """
         raise NotImplementedError()
 

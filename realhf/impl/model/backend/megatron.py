@@ -664,7 +664,6 @@ class PipeTrainInstrSetForMegatron(PipeTrainInstrSet):
             loss: torch.Tensor = tensor_buffer.get(
                 "losses", micro_batch_id, remove=True
             )
-            loss = self.engine.optim.scale_loss(loss)
             loss.backward()
             tensor_buffer.put("losses", micro_batch_id, loss.detach().clone())
             return
@@ -745,6 +744,8 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
         input_: SequenceSample,
         mb_spec: MicroBatchSpec,
         loss_fn: Callable,
+        loss_weight_fn: Callable,
+        token_normalize_scope: str,
         version_steps: int,
     ):
         with megatron_ctx():
@@ -765,10 +766,24 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
                     input_=input_,
                     mb_spec=mb_spec,
                     loss_fn=loss_fn,
+                    loss_weight_fn=loss_weight_fn,
+                    token_normalize_scope=token_normalize_scope,
                     version_steps=version_steps,
                 )
 
             mb_inputs = input_.divide_into_mbs_balanced(mb_spec)
+            total_loss_weight = torch.tensor(
+                sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
+            )
+            if token_normalize_scope == "global":
+                dist.all_reduce(
+                    total_loss_weight, group=constants.data_parallel_group()
+                )
+            if total_loss_weight == 0:
+                raise model_api.ZeroTotalLossWeightException(
+                    "The sum of loss weights of all micro batches is zero."
+                )
+
             if constants.parallelism_rank() == 0:
                 logger.info(
                     f"MB spec: {mb_spec}, #mbs={len(mb_inputs)}, "
@@ -795,8 +810,17 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
                     max_seqlen=max_seqlen,
                 ).logits
                 loss, _stat = loss_fn(model_output, mb_input)
+                loss_scale = loss_weight_fn(mb_inputs[i]) / total_loss_weight
+                if token_normalize_scope == "global":
+                    # Megatron will average gradients across DP ranks.
+                    # If we normalize loss across micro batches of all DP ranks,
+                    # we should revert the effect of gradient averaging in megatron
+                    # to make sure loss from each token is scaled properly.
+                    loss_scale *= constants.data_parallel_world_size()
+                loss_scale *= self.engine.optim.get_loss_scale().item()
+                loss *= loss_scale
                 with cuda_tmarked("bwd", CUDATimeMarkType.backward):
-                    self.engine.optim.scale_loss(loss).backward()
+                    loss.backward()
                 for k, v in _stat.items():
                     stat[k] += v
 

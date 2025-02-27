@@ -496,6 +496,8 @@ def _test_para_realloc(
                         if not is_critic
                         else compute_critic_loss
                     ),
+                    loss_weight_fn=lambda: 1,
+                    token_normalize_scope="dp",
                     version_steps=i,
                 )
 

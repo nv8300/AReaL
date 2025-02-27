@@ -107,6 +107,8 @@ class MockTrainEngine(model_api.PipelinableEngine):
         input_: SequenceSample,
         mb_spec: MicroBatchSpec,
         loss_fn: Callable,
+        loss_weight_fn: Callable,
+        token_normalize_scope: str,
         version_steps: int,
     ):
         self.optimizer.zero_grad()
@@ -120,10 +122,21 @@ class MockTrainEngine(model_api.PipelinableEngine):
                 input_=input_,
                 mb_spec=mb_spec,
                 loss_fn=loss_fn,
+                loss_weight_fn=loss_weight_fn,
+                token_normalize_scope=token_normalize_scope,
                 version_steps=version_steps,
             )
 
         mb_inputs = input_.divide_into_mbs_balanced(mb_spec)
+        total_loss_weight = torch.tensor(
+            sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
+        )
+        if token_normalize_scope == "global":
+            dist.all_reduce(total_loss_weight, group=constants.data_parallel_group())
+        if total_loss_weight == 0:
+            raise model_api.ZeroTotalLossWeightException(
+                "The sum of loss weights of all micro batches is zero."
+            )
 
         if constants.parallelism_rank() == 0:
             logger.info(
@@ -147,6 +160,10 @@ class MockTrainEngine(model_api.PipelinableEngine):
                 max_seqlen=max_seqlen,
             ).logits
             loss, _stat = loss_fn(model_output, mb_input)
+            loss_scale = loss_weight_fn(mb_inputs[i]) / total_loss_weight
+            if token_normalize_scope == "global":
+                loss_scale *= constants.data_parallel_world_size()
+            loss *= loss_scale
             for k, v in _stat.items():
                 stat[k] += v
 
