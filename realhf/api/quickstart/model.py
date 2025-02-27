@@ -106,7 +106,10 @@ class OptimizerConfig:
     )
     warmup_steps_proportion: float = 0.02
     offload: bool = False
-    initial_loss_scale: float = 4096.0
+    initial_loss_scale: float = 2**32
+    min_loss_scale: float = 1.0
+    loss_scale_window: float = 5
+    hysteresis: int = 2
     gradient_clipping: float = 1.0
 
 

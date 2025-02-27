@@ -961,6 +961,9 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
             overlap_grad_reduce=self.overlap_grad_reduce,
             overlap_param_gather=self.overlap_param_gather,
             clip_grad=self.optimizer.gradient_clipping,
+            min_loss_scale=self.optimizer.min_loss_scale,
+            loss_scale_window=self.optimizer.loss_scale_window,
+            hysteresis=self.optimizer.hysteresis,
         )
 
         with megatron_ctx():
