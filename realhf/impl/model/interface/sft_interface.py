@@ -100,6 +100,8 @@ class SFTInterface(model_api.ModelInterface):
         stat = module.train_batch(
             input_=data,
             loss_fn=compute_packed_sft_loss,
+            loss_weight_fn=lambda: 1,
+            token_normalize_scope="dp",
             mb_spec=mb_spec,
             version_steps=model.version.global_step,
         )

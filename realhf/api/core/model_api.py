@@ -27,6 +27,10 @@ from realhf.base.recover import StepInfo
 logger = logging.getLogger("model_api")
 
 
+class ZeroTotalLossWeightException(Exception):
+    pass
+
+
 @dataclasses.dataclass
 class GenerationHyperparameters:
     """Generation hyperparameters.
@@ -334,6 +338,8 @@ class PipelinableEngine(abc.ABC):
         input_: SequenceSample,
         mb_spec: MicroBatchSpec,
         loss_fn: Callable[[torch.Tensor, SequenceSample], Tuple[torch.Tensor, Dict]],
+        loss_weight_fn: Callable,
+        token_normalize_scope: Literal["global", "dp"],
         version_steps: int,
     ) -> Tuple[torch.Tensor, Dict] | None:
         """Update the model with a batch of data and a loss function.
@@ -345,6 +351,10 @@ class PipelinableEngine(abc.ABC):
         :param loss_fn: The loss function. It takes the output of the forward pass and the
             input data, returning the loss and a dictionary of statistics.
         :type loss_fn: Callable[[torch.Tensor, SequenceSample], Tuple[torch.Tensor, Dict]]
+        :param global_normalize_scope: The scope of token-wise loss normalization. Choices:
+            global: average across all micro batches across DP ranks.
+            dp: average across micro batches in current DP rank.
+        :type global_normalize_scope: Literal["global", "dp"]
         :param version_steps: The global step counter for this experiment,
             used by the backend to determine the learning rate schedule.
         :type version_steps: int
