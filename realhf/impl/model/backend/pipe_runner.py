@@ -1035,7 +1035,7 @@ class PipelineRunner:
                 # we should revert the effect of gradient averaging in megatron
                 # to make sure loss from each token is scaled properly.
                 loss_scale *= constants.data_parallel_world_size()
-            loss_scale *= instr_set.engine.optim.get_loss_scale()
+            loss_scale *= instr_set.engine.optim.get_loss_scale().item()
             tensor_buffer.put("loss_scale", i, loss_scale)
             tensor_buffer.put("version_steps", i, version_steps)
             tensor_buffer.put("loss_fn", i, loss_fn)

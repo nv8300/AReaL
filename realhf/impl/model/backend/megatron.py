@@ -817,7 +817,7 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
                     # we should revert the effect of gradient averaging in megatron
                     # to make sure loss from each token is scaled properly.
                     loss_scale *= constants.data_parallel_world_size()
-                loss_scale *= self.engine.optim.get_loss_scale()
+                loss_scale *= self.engine.optim.get_loss_scale().item()
                 loss *= loss_scale
                 with cuda_tmarked("bwd", CUDATimeMarkType.backward):
                     loss.backward()
