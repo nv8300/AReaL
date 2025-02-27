@@ -102,7 +102,6 @@ class SFTInterface(model_api.ModelInterface):
             input_=data,
             loss_fn=compute_packed_sft_loss,
             loss_weight_fn=lambda x: x.data["prompt_mask"]
-            .count_nonzero()
             .logical_not()
             .count_nonzero(),
             token_normalize_scope=self.token_normalize_scope,
