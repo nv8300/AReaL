@@ -5,7 +5,6 @@
 import dataclasses
 
 from realhf.api.core.config import (
-    DataLoaderAbstraction,
     DatasetAbstraction,
     ModelInterfaceAbstraction,
     ModelInterfaceType,
@@ -82,22 +81,18 @@ class SFTConfig(CommonExperimentConfig):
         ]
 
     @property
-    def eval_datasets(self):
-        return [
-            DatasetAbstraction(
-                "prompt_answer",
-                args=dict(
-                    max_length=self.dataset.max_seqlen,
-                    dataset_path=self.dataset.valid_path,
-                ),
-            )
-        ]
+    def eval_dataset(self):
+        return DatasetAbstraction(
+            "prompt_answer",
+            args=dict(
+                max_length=self.dataset.max_seqlen,
+                dataset_path=self.dataset.valid_path,
+            ),
+        )
 
     @property
-    def eval_dataloader(self):
-        return DataLoaderAbstraction(
-            "packed_eval", args=dict(batch_size=self.dataset.valid_bs_n_seqs)
-        )
+    def eval_bs(self) -> int:
+        return self.dataset.valid_bs_n_seqs
 
     @property
     def tokenizer_name_or_path(self):

@@ -156,7 +156,7 @@ class NameResolvingRequestClient:
 
     def request(
         self,
-        handlers: List[str] | None = None,
+        handlers: List[str | int] | None = None,
         handle_type: str | None = None,
         datas: List[Any] | None = None,
         payloads: List[Payload] | None = None,
@@ -222,7 +222,7 @@ class NameResolvingRequestClient:
 
     def call(
         self,
-        handlers: List[str] | None = None,
+        handlers: List[str | int] | None = None,
         handle_type: str | None = None,
         datas: List[Any] | None = None,
         payloads: List[Payload] | None = None,

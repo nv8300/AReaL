@@ -105,7 +105,6 @@ class NoRequestToHandle(Exception):
 
 class ModelWorker(worker_base.Worker):
     _setup_counter = -1
-    _seed_offset = 0
 
     def _configure(self, cfg: system_api.ModelWorker):
         self._setup_counter += 1
@@ -126,10 +125,7 @@ class ModelWorker(worker_base.Worker):
 
         self.__worker_index = cfg.worker_info.worker_index
 
-        torch.backends.cudnn.benchmark = cfg.cudnn_benchmark
-        torch.backends.cudnn.deterministic = cfg.cudnn_deterministic
-
-        seeding.set_random_seed(cfg.seed)
+        seeding.set_random_seed(cfg.base_seed + self.__worker_index)
 
         # Reveal process group identity of this worker to world.
         gpu_utils.reveal_pg_identity(
@@ -308,7 +304,8 @@ class ModelWorker(worker_base.Worker):
             datasets = [
                 data_api.make_dataset(
                     d,
-                    self.config.seed,
+                    # NOTE: we must use the same seed to ensure the same dataset split
+                    self.config.base_seed,
                     self.__dataset_dp_rank,
                     self.__dataset_dp_size,
                     self.config.tokenizer_name_or_path,
@@ -327,10 +324,20 @@ class ModelWorker(worker_base.Worker):
             else:
                 self.__dataset = torch.utils.data.ConcatDataset(datasets)
 
+            g = torch.Generator()
+            g.manual_seed(seeding.get_seed())
+            self.__dataloader = torch.utils.data.DataLoader(
+                self.__dataset,
+                collate_fn=data_api.SequenceSample.gather,
+                # NOTE: This is *NOT* the actual batch size for training.
+                # It is just a proper size to load data to workers.
+                batch_size=10240,
+                shuffle=True,
+                generator=g,
+            )
+
             self.__raw_samples = []
-            for tmp_sample in data_api.make_dataloader(
-                self.config.dataloader, self.__dataset
-            ):
+            for tmp_sample in self.__dataloader:
                 self.__raw_samples += tmp_sample.meta().unpack()
 
         self.__models: Dict[ModelName, model_api.Model] = dict()
@@ -406,30 +413,27 @@ class ModelWorker(worker_base.Worker):
                     interface_impl[0]
                 )
 
-                if s.eval_datasets is not None and s.eval_dataloader is not None:
-                    eval_datasets = [
-                        data_api.make_dataset(
-                            d,
-                            self.config.seed,
-                            s.id.dp_rank,
-                            s.id.topo.get_dim("data"),
-                            self.__models[s.id.model_name].tokenizer,
-                            self.config.worker_info.experiment_name,
-                            self.config.worker_info.trial_name,
-                            cache_root=(
-                                None
-                                if not self.config.use_dataset_cache
-                                else self.config.dataset_cahce_root
-                            ),
-                        )
-                        for d in s.eval_datasets
-                    ]
-                    if len(eval_datasets) > 1:
-                        eval_dataset = torch.utils.data.ConcatDataset(eval_datasets)
-                    else:
-                        eval_dataset = eval_datasets[0]
-                    eval_dataloader = data_api.make_dataloader(
-                        s.eval_dataloader, eval_dataset
+                if s.eval_dataset is not None:
+                    eval_dataset = data_api.make_dataset(
+                        s.eval_dataset,
+                        # NOTE: we must use the same seed to ensure the same dataset split
+                        self.config.base_seed,
+                        s.id.dp_rank,
+                        s.id.topo.get_dim("data"),
+                        self.__models[s.id.model_name].tokenizer,
+                        self.config.worker_info.experiment_name,
+                        self.config.worker_info.trial_name,
+                        cache_root=(
+                            None
+                            if not self.config.use_dataset_cache
+                            else self.config.dataset_cahce_root
+                        ),
+                    )
+                    eval_dataloader = torch.utils.data.DataLoader(
+                        eval_dataset,
+                        batch_size=s.eval_bs,
+                        collate_fn=data_api.SequenceSample.gather,
+                        shuffle=False,
                     )
                 else:
                     eval_dataloader = None
@@ -601,10 +605,17 @@ class ModelWorker(worker_base.Worker):
                         dataset_indices_path,
                         self.__dataset.active_indices,
                     )
-                self.__dataloader = data_api.make_dataloader(
-                    self.config.dataloader, self.__dataset, seed_offset=self._seed_offset,
+                g = torch.Generator()
+                g = g.set_state(self.__dataloader.generator.get_state())
+                self.__dataloader = torch.utils.data.DataLoader(
+                    self.__dataset,
+                    collate_fn=data_api.SequenceSample.gather,
+                    # NOTE: This is *NOT* the actual batch size for training.
+                    # It is just a proper size to load data to workers.
+                    batch_size=10240,
+                    shuffle=True,
+                    generator=g,
                 )
-                self._seed_offset += 1
                 self.__data_generator = enumerate(self.__dataloader)
 
             # Fetch.

@@ -18,7 +18,6 @@ from omegaconf import MISSING, OmegaConf
 
 import realhf.base.logging as logging
 from realhf.api.core.config import (
-    DataLoaderAbstraction,
     DatasetAbstraction,
     ModelAbstraction,
     ModelBackendAbstraction,
@@ -256,22 +255,17 @@ class CommonExperimentConfig(Experiment):
         return NotImplementedError(f"datasets is not implemented in {self.__class__}")
 
     @property
-    def eval_datasets(self) -> List[DatasetAbstraction]:
-        """A list of dataset configurations used for evaluation.
+    def eval_dataset(self) -> DatasetAbstraction | None:
+        """The dataset configuration used for evaluation.
 
         Can be None if runtime evaluation is not needed.
         """
         return None
 
     @property
-    def eval_dataloader(self) -> DataLoaderAbstraction:
-        """The dataloader configuration used for evaluation.
-
-        Reserved to changed the evaluation batch size. Training does not
-        require this property because the batch size is handled in MFC
-        definitions.
-        """
-        return DataLoaderAbstraction("packed_eval", args=dict(batch_size=128))
+    def eval_bs(self) -> int:
+        """The batch size for runtime evaluation."""
+        return 128
 
     @property
     def tokenizer_name_or_path(self) -> str:
@@ -553,7 +547,7 @@ class CommonExperimentConfig(Experiment):
 
         for i, j in itertools.product(range(self.n_nodes), range(self.n_gpus_per_node)):
             mw = ModelWorker(
-                seed=self.seed,
+                base_seed=self.seed,
                 shards=[],
                 datasets=self.datasets,
                 torch_cache_mysophobia=self.torch_cache_mysophobia,
@@ -611,7 +605,6 @@ class CommonExperimentConfig(Experiment):
                         backend=ModelBackendAbstraction(
                             "vllm",
                             args=dict(
-                                seed=self.seed,
                                 model_path=model_cfg.path,
                                 **vllm_dict_args,
                             ),
@@ -691,7 +684,6 @@ class CommonExperimentConfig(Experiment):
                     backend = ModelBackendAbstraction(
                         "vllm",
                         args=dict(
-                            seed=self.seed,
                             model_path=model_cfg.path,
                             **vllm_dict_args,
                         ),
@@ -713,8 +705,8 @@ class CommonExperimentConfig(Experiment):
                             ),
                             model=model,
                             backend=backend,
-                            eval_datasets=self.eval_datasets,
-                            eval_dataloader=self.eval_dataloader,
+                            eval_dataset=self.eval_dataset,
+                            eval_bs=self.eval_bs,
                         )
                     )
                     shard_counter[model_name] += 1

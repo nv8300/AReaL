@@ -31,7 +31,7 @@ except ModuleNotFoundError:
 
 from realhf.api.core import data_api, model_api
 from realhf.api.quickstart.model import vLLMConfig
-from realhf.base import constants, logging
+from realhf.base import constants, logging, seeding
 
 logger = logging.getLogger("vLLM backend")
 
@@ -165,7 +165,6 @@ class vLLMGenerationEngine(model_api.PipelinableEngine, LLM):
 
 @dataclasses.dataclass
 class vLLMGenerationBackend(vLLMConfig, model_api.ModelBackend):
-    seed: int = 0
     model_path: str = ""
 
     def _initialize(
@@ -187,7 +186,7 @@ class vLLMGenerationBackend(vLLMConfig, model_api.ModelBackend):
             skip_tokenizer_init=False,
             trust_remote_code=True,
             max_model_len=self.max_model_len,
-            seed=self.seed,
+            seed=seeding.get_seed(),
             dtype=torch.float16,
             kv_cache_dtype=self.kv_cache_type,
             device=constants.current_device(),

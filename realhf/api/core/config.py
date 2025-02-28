@@ -17,12 +17,6 @@ class DatasetAbstraction:
 
 
 @dataclasses.dataclass
-class DataLoaderAbstraction:
-    type_: str = "default"
-    args: Dict[str, Any] = dataclasses.field(default_factory=dict)
-
-
-@dataclasses.dataclass
 class ModelWrapperAbstraction:
     type_: str
     args: Dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -187,10 +181,6 @@ class StandaloneModelShardAbstraction:
     model: ModelAbstraction
     backend: ModelBackendAbstraction
     # evaluation
-    eval_datasets: Optional[List[DatasetAbstraction]] = None
-    eval_dataloader: Optional[DataLoaderAbstraction] = dataclasses.field(
-        default_factory=lambda: DataLoaderAbstraction(
-            "packed_eval", args=dict(batch_size=128)
-        )
-    )
+    eval_dataset: Optional[DatasetAbstraction] = None
+    eval_bs: int = 128
     should_instantiate: bool = True

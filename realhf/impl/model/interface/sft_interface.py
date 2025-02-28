@@ -152,10 +152,7 @@ class SFTInterface(model_api.ModelInterface):
             res = module.eval_batch(
                 input_=x.to_device(device),
                 loss_fn=compute_packed_sft_loss,
-                mb_spec=MicroBatchSpec(
-                    n_mbs=constants.pipe_parallel_world_size(),
-                    balanced_seqs=True,
-                ),
+                mb_spec=MicroBatchSpec(),
             )
 
             if res is not None:

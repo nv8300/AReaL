@@ -15,7 +15,6 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import realhf.api.core.dfg as dfg
 from realhf.api.core.config import (
-    DataLoaderAbstraction,
     DatasetAbstraction,
     ModelAbstraction,
     ModelName,
@@ -114,17 +113,13 @@ class WorkerInformation:
 
 @dataclasses.dataclass
 class ModelWorker:
-    seed: int
+    base_seed: int
     shards: List[StandaloneModelShardAbstraction]
     # dataset, for source model workers
     tokenizer_name_or_path: Optional[str] = None
     datasets: Optional[List[Union[str, DatasetAbstraction]]] = None
-    dataloader: Union[str, DataLoaderAbstraction] = "packed"
     use_dataset_cache: bool = False
     dataset_cahce_root: str = constants.DATASET_CACHE_PATH
-    # cuda & cudnn config
-    cudnn_benchmark: bool = False
-    cudnn_deterministic: bool = False
     cuda_cache_cleanliness: bool = True
     cuda_cache_clear_freq: int = 10
     torch_cache_mysophobia: bool = False
@@ -210,12 +205,13 @@ class ExperimentSaveEvalControl:
 
 @dataclasses.dataclass
 class MasterWorker:
+    base_seed: int
     exp_ctrl: ExperimentSaveEvalControl
     # main components
     n_model_workers: int
     model_rpcs: List[dfg.MFCDef] = None
     model_topos: Dict[ModelName, topology.PipeModelDataParallelTopology] = None
-    msid2mwid: Dict[ModelShardID, int] = None
+    msid2mwid: Dict[ModelShardID | str, int] = None
     data_transfer_pairs: List[Tuple[str, str]] = None
     sync_param_pairs: List[Tuple[str, str]] = None
     worker_info: Optional[WorkerInformation] = None
@@ -263,7 +259,11 @@ class ExperimentConfig:
 
     def __post_init__(self):
         self.master_worker = [
-            MasterWorker(exp_ctrl=self.exp_ctrl, n_model_workers=len(self.model_worker))
+            MasterWorker(
+                base_seed=self.model_worker[0].base_seed,
+                exp_ctrl=self.exp_ctrl,
+                n_model_workers=len(self.model_worker),
+            )
         ]
 
     def lazy_init(self):
