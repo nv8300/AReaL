@@ -105,6 +105,7 @@ class NoRequestToHandle(Exception):
 
 class ModelWorker(worker_base.Worker):
     _setup_counter = -1
+    _seed_offset = 0
 
     def _configure(self, cfg: system_api.ModelWorker):
         self._setup_counter += 1
@@ -601,8 +602,9 @@ class ModelWorker(worker_base.Worker):
                         self.__dataset.active_indices,
                     )
                 self.__dataloader = data_api.make_dataloader(
-                    self.config.dataloader, self.__dataset
+                    self.config.dataloader, self.__dataset, seed_offset=self._seed_offset,
                 )
+                self._seed_offset += 1
                 self.__data_generator = enumerate(self.__dataloader)
 
             # Fetch.
