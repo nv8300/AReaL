@@ -15,6 +15,7 @@ from typing import *
 import numpy as np
 import transformers
 from omegaconf import MISSING, OmegaConf
+from transformers.utils import is_accelerate_available
 
 import realhf.base.logging as logging
 from realhf.api.core.config import (
@@ -58,9 +59,7 @@ from realhf.experiments.common.check import (
     check_valid_vllm,
 )
 from realhf.experiments.common.utils import (
-    extract_decoupled_vllm_train_allocation,
-    extract_key_value_allocation,
-    extract_symmetric_allocation,
+    AllocationMode,
     get_topo,
     make_inf_backend_config,
     make_train_backend_config,
@@ -110,10 +109,6 @@ class CommonExperimentConfig(Experiment):
     - ``search``\: Allocate resources and configure parallel strategies using the search engine.
 
     - ``heuristic``\: Allocate resources and configure parallel strategies using heuristic strategies obtained from a search.
-
-    - ``pipe_data``\: Identical parallelization (like DSChat) with pipe+data parallelism. For a world size under 8, only data parallelism will be used.
-
-    - ``pipe_model``\: Identical parallelization (like DSChat) with pipe+model parallelism. For a world size under 8, only tensor-model parallelism will be used.
 
     - A regex pattern like ``d${DP}p${PP}m${TP}``\: Identical parallelization for all MFCs with ${DP}-way data parallelism, ${PP}-way pipeline parallelism, and ${TP}-way model parallelism.
 
@@ -204,7 +199,7 @@ class CommonExperimentConfig(Experiment):
     recover_retries: int = 1
     recover_after: int = 10
     ignore_worker_error: bool = False
-    allocation_mode: str = "pipe_model"
+    allocation_mode: str = ""
     allocation_use_cache: bool = False
     n_nodes: int = 1
     n_gpus_per_node: int = cluster_spec.n_gpus_per_node
@@ -358,6 +353,8 @@ class CommonExperimentConfig(Experiment):
 
         self.__check_legal_allocation_options()
 
+        self._allocation_mode = AllocationMode.from_str(self.allocation_mode)
+
         rpcs = self.rpcs
         if self.allocation_mode == "search":
             # assert self.mode == "slurm"
@@ -372,90 +369,72 @@ class CommonExperimentConfig(Experiment):
                         break
                 else:
                     raise ValueError(f"RPC {rpc_alloc.rpc} not found in rpcs.")
-        elif (
-            self.allocation_mode == "pipe_data"
-            or self.allocation_mode == "pipe_model"
-            or extract_symmetric_allocation(self.allocation_mode)
-        ):
-            if self.allocation_mode == "pipe_data":
-                dp, pp, mp = self.n_gpus_per_node, self.n_nodes, 1
-            elif self.allocation_mode == "pipe_model":
-                dp, pp, mp = 1, self.n_nodes, self.n_gpus_per_node
-            else:
-                para = extract_symmetric_allocation(self.allocation_mode)
-                dp, pp, mp = para["d"], para["p"], para["m"]
-                if dp * pp * mp != self.n_nodes * self.n_gpus_per_node:
-                    raise ValueError(
-                        "The multiplication of 3D parallel degrees "
-                        "does not equal to the number of gpus. "
-                        f"dp={dp}, pp={pp}, mp={mp}, "
-                        f"n_nodes={self.n_nodes}, n_gpus_per_node={self.n_gpus_per_node}"
-                    )
-            rpc_allocs: List[RPCAllocation] = [
-                RPCAllocation(
-                    rpc=rpc,
-                    device_mesh=self.global_device_mesh,
-                    parallel=ParallelismConfig(
-                        data_parallel_size=dp,
-                        pipeline_parallel_size=pp,
-                        model_parallel_size=mp,
-                        use_sequence_parallel=(
-                            rpc.interface_type == ModelInterfaceType.TRAIN_STEP
-                            and mp > 1
-                        ),
-                    ),
-                )
-                for rpc in rpcs.values()
-            ]
-        elif extract_decoupled_vllm_train_allocation(self.allocation_mode):
-            para = extract_decoupled_vllm_train_allocation(self.allocation_mode)
-            dp, pp, mp = para["d"], para["p"], para["m"]
-            vdp, vpp, vmp = para["vllm.d"], para["vllm.p"], para["vllm.m"]
-            vllm_world_size = vdp * vpp * vmp
-            if dp * pp * mp + vdp * vpp * vmp != self.n_nodes * self.n_gpus_per_node:
-                raise ValueError(
-                    "The multiplication of 3D parallel degrees "
-                    "does not equal to the number of gpus. "
-                    "Note that the device mesh of vLLM should be disjoint from the device mesh of other MFCs, "
-                    "so their summation should be equal to the total number of gpus. "
-                    f"dp={dp}, pp={pp}, mp={mp}, vllm.dp={vdp}, vllm.pp={vpp}, vllm.mp={vmp}, "
-                    f"n_nodes={self.n_nodes}, n_gpus_per_node={self.n_gpus_per_node}"
-                )
+        elif self._allocation_mode.is_decoupled():
+            paras = self._allocation_mode.parallel_strat
+
+            gdp, gpp, gmp = paras["gen"]["d"], paras["gen"]["p"], paras["gen"]["m"]
+            gen_world_size = gdp * gpp * gmp
             assert (
-                vllm_world_size < self.n_gpus_per_node
-                or vllm_world_size % self.n_gpus_per_node == 0
+                gen_world_size < self.n_gpus_per_node
+                or gen_world_size % self.n_gpus_per_node == 0
             )
-            vllm_device_mesh, train_device_mesh = self.global_device_mesh.split(
-                vllm_world_size
+            gen_device_mesh, train_device_mesh = self.global_device_mesh.split(
+                gen_world_size
             )
 
-            self.vllm_device_mesh = vllm_device_mesh
+            self.gen_device_mesh = gen_device_mesh
             self.train_device_mesh = train_device_mesh
 
             rpc_allocs = []
             flag = False
             for rpc in rpcs.values():
-                if rpc.interface_type == ModelInterfaceType.GENERATE:
-                    if vpp != 1:
+                if rpc.is_generate():
+                    if gpp != 1:
                         raise NotImplementedError(
-                            "vllm pipeline parallel is not supported yet."
+                            "vllm/sglang pipeline parallel is not supported yet."
                         )
                     if flag:
                         raise NotImplementedError(
-                            "vllm does not support two generation RPCs for now."
+                            "vllm/sglang does not support two generation RPCs for now."
                         )
                     alloc = RPCAllocation(
                         rpc=rpc,
-                        device_mesh=vllm_device_mesh,
+                        device_mesh=gen_device_mesh,
                         parallel=ParallelismConfig(
-                            data_parallel_size=vdp,
-                            pipeline_parallel_size=vpp,
-                            model_parallel_size=vmp,
+                            data_parallel_size=gdp,
+                            pipeline_parallel_size=gpp,
+                            model_parallel_size=gmp,
                             use_sequence_parallel=False,
                         ),
                     )
                     flag = True
                 else:
+                    rpc_name = rpc.name
+                    if rpc_name in paras:
+                        dp, pp, mp = (
+                            paras[rpc_name]["d"],
+                            paras[rpc_name]["p"],
+                            paras[rpc_name]["m"],
+                        )
+                    else:
+                        if "*" not in paras:
+                            raise ValueError(
+                                f"RPC {rpc_name} parallel strategy not given, "
+                                "expect a `*` to specify the default parallel strategy."
+                            )
+                        dp, pp, mp = paras["*"]["d"], paras["*"]["p"], paras["*"]["m"]
+                    if (
+                        dp * pp * mp + gdp * gpp * gmp
+                        != self.n_nodes * self.n_gpus_per_node
+                    ):
+                        raise ValueError(
+                            "The multiplication of 3D parallel degrees "
+                            "does not equal to the number of gpus. "
+                            "Note that the device mesh of vLLM should be disjoint from the device mesh of other MFCs, "
+                            "so their summation should be equal to the total number of gpus. "
+                            f"dp={dp}, pp={pp}, mp={mp}, vllm.dp={gdp}, vllm.pp={gpp}, vllm.mp={gmp}, "
+                            f"n_nodes={self.n_nodes}, n_gpus_per_node={self.n_gpus_per_node}"
+                        )
                     alloc = RPCAllocation(
                         rpc=rpc,
                         device_mesh=train_device_mesh,
@@ -472,10 +451,10 @@ class CommonExperimentConfig(Experiment):
                 rpc_allocs.append(alloc)
             if not flag:
                 raise ValueError(
-                    "No generation RPC found. Please use the allocation mode without vllm."
+                    "No generation RPC found. Please use the hybrid train allocation mode."
                 )
-        elif extract_key_value_allocation(self.allocation_mode):
-            paras = extract_key_value_allocation(self.allocation_mode)
+        elif self._allocation_mode.is_global_hybrid():
+            paras = self._allocation_mode.parallel_strat
             rpc_allocs = []
             for rpc_name, rpc in self.rpcs.items():
                 if rpc_name in paras:
@@ -558,8 +537,8 @@ class CommonExperimentConfig(Experiment):
 
             # vLLM enabled model worker, shortcut case
             if (
-                extract_decoupled_vllm_train_allocation(self.allocation_mode)
-                and self.vllm_device_mesh.mapping[i, j]
+                self._allocation_mode.is_decoupled()
+                and self.gen_device_mesh.mapping[i, j]
             ):
                 gen_rpc_alloc = next(
                     alloc

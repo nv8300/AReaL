@@ -3,6 +3,8 @@
 # Licensed under the Apache License, Version 2.0 (the "License").
 
 import collections
+import dataclasses
+import enum
 import itertools
 import re
 from typing import *
@@ -224,58 +226,94 @@ def resolve_rpc_hooks(
             logger.info(f"Add offload hook for rpc {rpc.name} for role {rpc.role}")
 
 
-def extract_symmetric_allocation(allocation_mode: str) -> Dict | None:
-    for x, y, z in itertools.permutations(["d", "m", "p"]):
-        pattern = rf"{x}(\d+){y}(\d+){z}(\d+)"
-        m = re.match(pattern, allocation_mode)
+class AllocationType(enum.Enum):
+    DECOUPLED = 1
+    GLOBAL_HYBRID = 2
+
+
+@dataclasses.dataclass
+class AllocationMode:
+    type_: AllocationType
+    parallel_strat: Dict[str, Dict[str, int]]
+
+    def is_decoupled(self):
+        return self.type_ == AllocationType.DECOUPLED
+
+    def is_global_hybrid(self):
+        return self.type_ == AllocationType.GLOBAL_HYBRID
+
+    @classmethod
+    def from_str(cls, allocation_mode: str):
+        alloc_3d = AllocationMode.extract_3d_alloc(allocation_mode)
+        alloc_hybrid = AllocationMode.extract_key_value_alloc(allocation_mode)
+        alloc_decoupled = AllocationMode.extract_decoupled_alloc(allocation_mode)
+        if alloc_decoupled:
+            return cls(AllocationType.DECOUPLED, alloc_decoupled)
+        if alloc_3d:
+            return cls(AllocationType.GLOBAL_HYBRID, alloc_3d)
+        if alloc_hybrid:
+            return cls(AllocationType.GLOBAL_HYBRID, alloc_hybrid)
+        raise NotImplementedError(f"Failed to parse allocation: {allocation_mode}")
+
+    @staticmethod
+    def extract_3d_alloc(allocation_mode: str) -> Dict | None:
+        for x, y, z in itertools.permutations(["d", "m", "p"]):
+            pattern = rf"{x}(\d+){y}(\d+){z}(\d+)"
+            m = re.match(pattern, allocation_mode)
+            if not m:
+                continue
+            a, b, c = map(int, m.groups())
+            # to be consistent with the key-value pattern
+            return {
+                "*": {
+                    x: a,
+                    y: b,
+                    z: c,
+                }
+            }
+
+    @staticmethod
+    def extract_decoupled_alloc(allocation_mode: str) -> Dict | None:
+        pattern = re.compile(
+            r"(?:(?:vllm|sglang)\.(.+?)\+(.+))|(?:(.+?)\+(?:vllm|sglang)\.(.+))"
+        )
+        m = pattern.match(allocation_mode)
         if not m:
-            continue
-        a, b, c = map(int, m.groups())
-        return {
-            x: a,
-            y: b,
-            z: c,
-        }
-
-
-def extract_decoupled_vllm_train_allocation(allocation_mode: str) -> Dict | None:
-    pattern = re.compile(r"(?:vllm\.(.+?)\+(.+))|(?:(.+?)\+vllm\.(.+))")
-    m = pattern.match(allocation_mode)
-    if not m:
-        return
-    if m.group(1):
-        vllm_alloc = m.group(1)
-        other_alloc = m.group(2)
-    else:
-        vllm_alloc = m.group(4)
-        other_alloc = m.group(3)
-    vllm_alloc = extract_symmetric_allocation(vllm_alloc)
-    other_alloc = extract_symmetric_allocation(other_alloc)
-    if not vllm_alloc:
-        return
-    if not other_alloc:
-        return
-    other_alloc.update({"vllm." + k: v for k, v in vllm_alloc.items()})
-    return other_alloc
-
-
-def parse_key_value_pairs(s: str):
-    pattern = re.compile(r"([^:,]+):([^:,]+)")
-    matches = pattern.findall(s)
-    if not matches:
-        return None
-    return {key: value for key, value in matches}
-
-
-def extract_key_value_allocation(
-    allocation_mode: str,
-) -> Dict[str, Dict[str, int]] | None:
-    allocs = parse_key_value_pairs(allocation_mode)
-    if not allocs:
-        return
-    for k, v in allocs.items():
-        v = extract_symmetric_allocation(v)
-        if not v:
             return
-        allocs[k] = v
-    return allocs
+        if m.group(1):
+            gen_alloc = m.group(1)
+            other_alloc = m.group(2)
+        else:
+            gen_alloc = m.group(4)
+            other_alloc = m.group(3)
+        gen_alloc = AllocationMode.extract_3d_alloc(gen_alloc)
+        if not gen_alloc:
+            return
+        other_alloc = AllocationMode.extract_3d_alloc(
+            other_alloc
+        ) or AllocationMode.extract_key_value_alloc(other_alloc)
+        if not other_alloc:
+            return
+        other_alloc.update({"gen": gen_alloc["*"]})
+        return other_alloc
+
+    @staticmethod
+    def extract_key_value_alloc(
+        allocation_mode: str,
+    ) -> Dict[str, Dict[str, int]] | None:
+        def parse_key_value_pairs(s: str):
+            pattern = re.compile(r"([^:,]+):([^:,]+)")
+            matches = pattern.findall(s)
+            if not matches:
+                return None
+            return {key: value for key, value in matches}
+
+        allocs = parse_key_value_pairs(allocation_mode)
+        if not allocs:
+            return
+        for k, v in allocs.items():
+            v = AllocationMode.extract_3d_alloc(v)
+            if not v:
+                return
+            allocs[k] = v["*"]
+        return allocs
