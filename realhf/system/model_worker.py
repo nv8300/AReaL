@@ -370,7 +370,11 @@ class ModelWorker(worker_base.Worker):
                             )
 
                         # Recover indices for dynamic dataset
-                        if self.__has_dataset and hasattr(self.__dataset, "filter"):
+                        if (
+                            s.id.model_name == src_rpc.model_name
+                            and self.__has_dataset
+                            and hasattr(self.__dataset, "filter")
+                        ):
                             dataset_indices_path = os.path.join(
                                 constants.MODEL_SAVE_ROOT,
                                 constants.experiment_name(),
