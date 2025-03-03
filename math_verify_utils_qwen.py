@@ -4,24 +4,34 @@ import argparse
 import json
 from parser import extract_answer
 
-from grader import math_equal
+from grader import call_with_timeout, math_equal
 
 
 def process_results(answer, solution):
-    extracted_answer = extract_answer(answer, "math", use_last_number=False)
-    extracted_solution = extract_answer(solution, "math", use_last_number=True)
 
-    # if extract_answer.strip() == "":
-    #     print (answer)
-    # raise
-    if extracted_answer is None or extracted_answer.strip() in ["None", "none", ""]:
-        retval = 0
-    elif math_equal(extracted_answer, extracted_solution, timeout=True):
-        retval = 1
-    else:
-        retval = 0
+    try:
+        extracted_answer = extract_answer(answer, "math", use_last_number=False)
+        extracted_solution = extract_answer(solution, "math", use_last_number=True)
 
-    return retval, (extracted_answer, extracted_solution)
+        # if extract_answer.strip() == "":
+        #     print (answer)
+        # raise
+        if extracted_answer is None or extracted_answer.strip() in ["None", "none", ""]:
+            retval = 0
+        elif math_equal(extracted_answer, extracted_solution, timeout=False):
+            # elif call_with_timeout(math_equal, extracted_answer, extracted_solution):
+            retval = 1
+        else:
+            retval = 0
+
+        return retval, (extracted_answer, extracted_solution)
+    except:
+        return 0, ("None", "None")
+
+
+def process_results_process(a, b, output_queue):
+    result = process_results(a, b)
+    output_queue.put(result)
 
 
 if __name__ == "__main__":
@@ -36,9 +46,17 @@ if __name__ == "__main__":
 
     with open(f"/tmp/{args.tmp_id}-output.jsonl", "w", encoding="utf-8") as temp_file:
         for input_data in all_input_data:
-            r, (ans, sol) = process_results(
-                input_data["answer"], input_data["solution"]
+            # r, (ans, sol) = process_results(
+            #     input_data["answer"], input_data["solution"]
+            # )
+            tmp = call_with_timeout(
+                process_results_process, input_data["answer"], input_data["solution"]
             )
+            if isinstance(tmp, bool):
+                r, (ans, sol) = 0, ("None", "None")
+            else:
+                r, (ans, sol) = tmp
+
             res = {"retval": r, "ans": ans, "sol": sol}
             temp_file.write(json.dumps(res) + "\n")
 

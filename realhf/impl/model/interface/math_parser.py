@@ -84,7 +84,7 @@ def parse_line(prompt_str, generated, query_id):
         preexec_fn=os.setsid,
         stdout=subprocess.DEVNULL,
     )
-    pro.wait(timeout=int(os.getenv("REAL_MATH_EVAL_TIMEOUT_SECS", "10")))
+    pro.wait()
     try:
         os.killpg(os.getpgid(pro.pid), signal.SIGTERM)
     except ProcessLookupError:
@@ -175,7 +175,7 @@ def parse_lines_in_parallel(
         procs.append(pro)
     for pro in procs:
         try:
-            pro.wait(timeout=int(os.getenv("REAL_MATH_EVAL_TIMEOUT_SECS", "10")))
+            pro.wait()
         except Exception as e:
             pass
         try:
