@@ -2,6 +2,7 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 
+import heapq
 import itertools
 from typing import Any, List, Tuple, Union
 
@@ -148,28 +149,36 @@ def reorder_to_balanced_batches(
     return np.array(reordered_indices), max_diff
 
 
-@numba.njit
+# @numba.njit
 def _ffd_allocate(
     values: np.ndarray, capacity: int, min_groups: int
 ) -> List[List[int]]:
+    """A greedy allocation algorithm that partitions a list of numbers
+    into k groups, where the summation of each group is less than capacity
+    and k >= min_groups. We want to minimize k and make partitions as balanced
+    as possible.
+
+    1. Sort the numbers in reverse order.
+    2. If the number of groups is less than, create a new group.
+    3. If the new number fits into the smallest group, add it into the group.
+    4. Otherwise, create a new group.
+    """
     value_indices = np.argsort(-values)
-    group_indices = []
-    group_values = []
+    group_indices: List[List[int]] = []
+    group_values: List[Tuple[float, int]] = []
+    group_cnt = 0
     for idx in value_indices:
-        if len(group_values) < min_groups:
-            group_values.append(values[idx])
+        if (
+            len(group_values) < min_groups
+            or group_values[0][0] + values[idx] > capacity
+        ):
+            heapq.heappush(group_values, (float(values[idx]), group_cnt))
             group_indices.append([idx])
-            continue
-        placed = False
-        for i in range(len(group_values)):
-            if group_values[i] + values[idx] <= capacity:
-                group_values[i] += values[idx]
-                group_indices[i].append(idx)
-                placed = True
-                break
-        if not placed:
-            group_values.append(values[idx])
-            group_indices.append([idx])
+            group_cnt += 1
+        else:
+            v, group_idx = heapq.heappop(group_values)
+            heapq.heappush(group_values, (float(v + values[idx]), group_idx))
+            group_indices[group_idx].append(idx)
     return group_indices
 
 
@@ -188,15 +197,15 @@ if __name__ == "__main__":
 
     for i in range(100):
         st = time.monotonic()
-        nums = np.random.randint(512, 4000, size=(32768,))
+        nums = np.random.randint(1024, 8192, size=(100,))
         # k = np.random.randint(2, 20)
         # min_size = np.random.randint(1, len(nums) // k)
         # res = min_abs_diff_partition(nums, k, min_size)
         # assert all(y - x >= min_size for x, y in res)
-        max_tokens_per_mb = 655360
-        n_groups = np.random.randint(10, 20)
-        groups = ffd_allocate(nums, max_tokens_per_mb, n_groups)
-        assert len(groups) >= n_groups
+        max_tokens_per_mb = 163840
+        min_n_groups = np.random.randint(1, 8)
+        groups = ffd_allocate(nums, max_tokens_per_mb, min_n_groups)
+        assert len(groups) >= min_n_groups
         import itertools
 
         indices = list(itertools.chain(*groups))
@@ -207,6 +216,8 @@ if __name__ == "__main__":
 
         print(
             len(groups),
+            min_n_groups,
+            [sum(nums[i] for i in group) for group in groups],
             max(group_percent),
             min(group_percent),
             np.mean(group_percent),

@@ -243,19 +243,6 @@ def test_gather_split(sample_type: str, dp: int):
 
     x = SequenceSample.gather(samples)
 
-    # Test gather-split-gather cosistency
-    for k in x.keys:
-        y = SequenceSample.gather(x.split(dp, key=k, min_size=1))
-        recursive_assert_equal(x, y)
-
-    # Test balanced split
-    balanced_size = sum(batch_sizes) // dp
-    for k in x.keys:
-        splitted = x.split(dp, key=k, min_size=balanced_size)
-        assert all(len(s.ids) >= balanced_size for s in splitted)
-        y = SequenceSample.gather(splitted)
-        recursive_assert_equal(x, y)
-
     # Test split to original samples
     spec = SequenceSplitSpec(sizes=batch_sizes)
     ss = x.split_with_spec(spec)
@@ -264,11 +251,10 @@ def test_gather_split(sample_type: str, dp: int):
 
     # Test split to the finest granularity
     total_bs = sum(batch_sizes)
-    for k in x.keys:
-        ss = x.split(total_bs, key=k, min_size=1)
-        assert len(ss) == total_bs
-        y = SequenceSample.gather(ss)
-        recursive_assert_equal(x, y)
+    ss, _, backward_indices = x.split(MicroBatchSpec(n_mbs=x.bs))
+    assert len(ss) == total_bs
+    y = SequenceSample.reorder(SequenceSample.gather(ss), backward_indices)
+    recursive_assert_equal(x, y)
 
     # Test divide micro batch and merge back
     for seqlens in [
@@ -281,7 +267,7 @@ def test_gather_split(sample_type: str, dp: int):
             n_mbs=np.random.randint(1, 10),
             max_tokens_per_mb=np.random.randint(800, 1000),
         )
-        mb_data, fwd_indices, bwd_indices = x.divide_into_mbs(mb_spec)
+        mb_data, fwd_indices, bwd_indices = x.split(mb_spec)
 
         for id_x, id_y in zip(
             [x.ids[i] for i in fwd_indices],

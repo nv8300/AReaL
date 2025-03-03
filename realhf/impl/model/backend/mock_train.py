@@ -127,7 +127,7 @@ class MockTrainEngine(model_api.PipelinableEngine):
                 version_steps=version_steps,
             )
 
-        mb_inputs = input_.divide_into_mbs_balanced(mb_spec)
+        mb_inputs = input_.synced_data_parallel_split(mb_spec)
         total_loss_weight = torch.tensor(
             sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
         )

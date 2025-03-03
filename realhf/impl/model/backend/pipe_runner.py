@@ -808,7 +808,7 @@ class PipelineRunner:
         mb_spec = MicroBatchSpec.new(
             mb_spec, n_mbs=self.default_inf_mbs * mb_spec.n_mbs
         )
-        mb_inputs, fwd_indices, bwd_indices = input_.divide_into_mbs(mb_spec)
+        mb_inputs, fwd_indices, bwd_indices = input_.split(mb_spec)
         if constants.parallelism_rank() == 0:
             logger.info(
                 f"MB spec: {mb_spec}, #mbs={len(mb_inputs)}, "
@@ -884,11 +884,8 @@ class PipelineRunner:
         # When the global batch is fixed, not matter how many micro-batches we
         # split, the all-together KV-cache memory usage will not be changed,
         # so it's useless to split micro-batches here.
-        mb_spec = MicroBatchSpec(
-            n_mbs=self.default_inf_mbs,
-            balanced_seqs=True,
-        )
-        mb_inputs, *_ = input_.divide_into_mbs(mb_spec)
+        mb_spec = MicroBatchSpec(n_mbs=self.default_inf_mbs)
+        mb_inputs, *_ = input_.split(mb_spec)
         if constants.parallelism_rank() == 0:
             logger.info(
                 f"MB spec: {mb_spec}, #mbs={len(mb_inputs)}, "
@@ -1009,7 +1006,7 @@ class PipelineRunner:
         mb_spec = MicroBatchSpec.new(
             mb_spec, n_mbs=mb_spec.n_mbs * self.default_train_mbs
         )
-        mb_inputs = input_.divide_into_mbs_balanced(mb_spec)
+        mb_inputs = input_.synced_data_parallel_split(mb_spec)
         total_loss_weight = torch.tensor(
             sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
         )

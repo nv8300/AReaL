@@ -82,11 +82,6 @@ def check_valid_parallel_batch_size(rpc_alloc: RPCAllocation):
         factor = 1
         if rpc.is_train() and rpc_alloc.parallel.pipeline_parallel_size > 1:
             factor = 2
-        if mb_spec.balanced_seqs or (
-            mb_spec.max_tokens_per_mb is not None and rpc.is_train()
-        ):
-            assert rpc.n_seqs % dp_size == 0, (rpc.n_seqs, dp_size)
-            return
 
         assert (
             rpc.n_seqs

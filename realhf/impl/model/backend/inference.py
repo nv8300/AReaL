@@ -103,7 +103,7 @@ class PipelinableInferenceEngine(model_api.PipelinableEngine):
                 post_hook=post_hook,
                 aggregate_fn=aggregate_fn,
             )
-        mb_inputs, fwd_indices, bwd_indices = input_.divide_into_mbs(mb_spec)
+        mb_inputs, fwd_indices, bwd_indices = input_.split(mb_spec)
         if constants.parallelism_rank() == 0:
             logger.info(
                 f"MB spec: {mb_spec}, #mbs={len(mb_inputs)}, "
@@ -161,14 +161,7 @@ class PipelinableInferenceEngine(model_api.PipelinableEngine):
         # NOTE: Interleave mini-batches in the pipeline results will not decrease
         # the memory usage, because we need to hold all KV-caches for different
         # mini-batches, so we split mini-batches in the outer loop.
-        if mb_spec.max_tokens_per_mb is not None and constants.parallelism_rank() == 0:
-            logger.warning(
-                "Generation will ignore max_tokens_per_mb because the length is not predictable."
-            )
-        mb_spec = MicroBatchSpec.new(
-            mb_spec, max_tokens_per_mb=None, balanced_seqs=True
-        )
-        mb_inputs, *_ = input_.divide_into_mbs(mb_spec)
+        mb_inputs, *_ = input_.split(mb_spec)
         if constants.parallelism_rank() == 0:
             logger.info(
                 f"MB spec: {mb_spec}, #mbs={len(mb_inputs)}, "

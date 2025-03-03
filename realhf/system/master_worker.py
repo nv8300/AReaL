@@ -381,21 +381,27 @@ async def model_rpc_request_func(
 
         # Dispatch data to different data parallel ranks.
         dp_size = topo.get_dim("data")
-        pp_size = topo.get_dim("pipe")
-        if rpc.mb_spec.balanced_seqs or (
-            rpc.mb_spec.max_tokens_per_mb is not None
-            and rpc.interface_type == dfg.ModelInterfaceType.TRAIN_STEP
-        ):
-            # For a train RPC, we must assure that all DP ranks have the same number
-            # of micro-batches, so we must evenly distribute the sequences.
-            assert sample.bs % dp_size == 0
-            min_n_seqs_per_dp = sample.bs // dp_size
+        if rpc.is_generate():
+            # The workload of generation is decided by batch size, instead of the generated length.
+            samples, forward_indices, _ = sample.split_with_lengths(
+                mb_spec=data_api.MicroBatchSpec(n_mbs=dp_size),
+                lens=[1 for _ in range(sample.bs)],
+            )
         else:
-            min_n_seqs_per_dp = pp_size * rpc.min_n_seqs_per_pass * rpc.mb_spec.n_mbs
-            if rpc.interface_type == dfg.ModelInterfaceType.TRAIN_STEP and pp_size > 1:
-                min_n_seqs_per_dp *= 2
-        split_spec = sample.get_split_spec(dp_size, min_size=int(min_n_seqs_per_dp))
-        partitions = split_spec.partitions
+            samples, forward_indices, _ = sample.split(
+                data_api.MicroBatchSpec(n_mbs=dp_size)
+            )
+        blogger.info(
+            f"DP split (DP size {dp_size}) for RPC {rpc.name}: "
+            f"#seqs: {[s.bs for s in samples]}, "
+            f"#tokens: {[sum([sum(lens) for lens in s.seqlens[s._get_split_key()]]) for s in samples]}"
+        )
+        sample = data_api.SequenceSample.gather(samples)
+        buf_indices = [buf_indices[i] for i in forward_indices]
+
+        partitions = data_api.SequenceSplitSpec(
+            sizes=[s.bs for s in samples]
+        ).partitions
         target_mapping = {i: list(range(v[0], v[1])) for i, v in enumerate(partitions)}
 
         # Set data owner of produced data by this RPC, such that downstream RPCs can know

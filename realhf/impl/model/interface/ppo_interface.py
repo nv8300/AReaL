@@ -615,9 +615,11 @@ class PPOActorInterface(model_api.ModelInterface):
         )
         # NOTE: We cannot randomly shuffle data here because
         # data must have the same shape across different pipeline stages.
-        datas = input_.split(
-            self.n_minibatches,
-            min_size=input_.bs // self.n_minibatches,
+        datas, *_ = input_.split(MicroBatchSpec(n_mbs=self.n_minibatches))
+        logger.info(
+            f"PPO minibatch split (size {self.n_minibatches}): "
+            f"#seqs: {[s.bs for s in datas]}, "
+            f"#tokens: {[sum([sum(lens) for lens in s.seqlens[s._get_split_key()]]) for s in datas]}"
         )
 
         if self.use_dense_reward:
@@ -1091,9 +1093,11 @@ class PPOCriticInterface(model_api.ModelInterface):
         )
         # NOTE: We cannot randomly shuffle data here because
         # data must have the same shape across different pipeline stages.
-        datas = input_.split(
-            self.n_minibatches,
-            min_size=input_.bs // self.n_minibatches,
+        datas, *_ = input_.split(MicroBatchSpec(n_mbs=self.n_minibatches))
+        logger.info(
+            f"PPO minibatch split (size {self.n_minibatches}): "
+            f"#seqs: {[s.bs for s in datas]}, "
+            f"#tokens: {[sum([sum(lens) for lens in s.seqlens[s._get_split_key()]]) for s in datas]}"
         )
 
         # Logging.

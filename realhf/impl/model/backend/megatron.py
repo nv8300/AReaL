@@ -751,7 +751,7 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
         with megatron_ctx():
             self.engine.zero_grad()
             if constants.pipe_parallel_world_size() > 1:
-                mb_inputs = input_.divide_into_mbs_balanced(
+                mb_inputs = input_.synced_data_parallel_split(
                     MicroBatchSpec.new(
                         mb_spec,
                         n_mbs=mb_spec.n_mbs * self.pipe_runner.default_train_mbs,
@@ -771,7 +771,7 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
                     version_steps=version_steps,
                 )
 
-            mb_inputs = input_.divide_into_mbs_balanced(mb_spec)
+            mb_inputs = input_.synced_data_parallel_split(mb_spec)
             total_loss_weight = torch.tensor(
                 sum([loss_weight_fn(mb) for mb in mb_inputs]), dtype=torch.float32
             )

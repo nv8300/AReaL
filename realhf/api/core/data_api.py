@@ -109,14 +109,10 @@ class MicroBatchSpec:
     :param max_tokens_per_mb: The maximum number of tokens per micro-
         batch.
     :type max_tokens_per_mb: Optional[int]
-    :param balanced_seqs: Whether to balance the number of sequences per
-        micro-batch. Only effective when max_tokens_per_mb is None.
-    :type balanced_seqs: bool, optional
     """
 
     n_mbs: int = 1
-    max_tokens_per_mb: int | None = None
-    balanced_seqs: bool = False
+    max_tokens_per_mb: int = int(1e12)
 
     @classmethod
     def new(cls, mb_spec: "MicroBatchSpec", **kwargs):
@@ -124,7 +120,6 @@ class MicroBatchSpec:
         fields = dict(
             n_mbs=mb_spec.n_mbs,
             max_tokens_per_mb=mb_spec.max_tokens_per_mb,
-            balanced_seqs=mb_spec.balanced_seqs,
         )
         fields.update(kwargs)
         return cls(**fields)
@@ -350,30 +345,6 @@ class SequenceSample:
         acc_seqlen = {k: sum(sum(l) for l in lens) for k, lens in self.seqlens.items()}
         return max(acc_seqlen, key=acc_seqlen.get)
 
-    def get_split_spec(
-        self, k: int, key: Optional[str] = None, min_size: int = 1
-    ) -> SequenceSplitSpec:
-        """Get the partition specification for splitting the data into `k`
-        parts using a dynamic programming algorithm to achieve the most
-        balanced partitioning.
-
-        :param k: The number of parts to split the data into.
-        :type k: int
-        :param key: The key to be used for splitting. If None, the key
-            with the largest total sequence length will be used.
-        :type key: Optional[str]
-        :param min_size: The minimum size of each partition.
-        :type min_size: int
-        :return: A SequenceSplitSpec object representing the
-            partitioning specification.
-        :rtype: SequenceSplitSpec
-        """
-        if key is None:
-            key = self._get_split_key()
-        lens = [sum(lens) for lens in self.seqlens[key]]
-        partitions = datapack.min_abs_diff_partition(lens, k, min_size)
-        return SequenceSplitSpec(partitions=partitions)
-
     def split_with_spec(self, spec: SequenceSplitSpec) -> List["SequenceSample"]:
         """Split the data according to the given spec."""
         samples = []
@@ -419,47 +390,9 @@ class SequenceSample:
                 )
         return samples
 
-    def split(
-        self,
-        k: int,
-        key: Optional[str] = None,
-        min_size: int = 1,
-    ) -> List["SequenceSample"]:
-        """Split the data into `k` parts.
-
-        This method uses the specified key or the key with the largest total sequence length
-        to split the data into `k` parts. The partitioning ensures that each part meets the
-        minimum size requirement.
-
-        :param k: The number of parts to split the data into.
-        :type k: int
-        :param key: The key to use for splitting. If None, the key with the largest
-            total sequence length will be used.
-        :type key: Optional[str]
-        :param min_size: The minimum size of each partition.
-        :type min_size: int
-        :return: A list of `SequenceSample` objects, each representing a part of the split data.
-        :rtype: List[SequenceSample]
-        """
-        spec = self.get_split_spec(k, key, min_size)
-        return self.split_with_spec(spec)
-
-    def divide_into_mbs(
-        self, mb_spec: MicroBatchSpec
+    def split_with_lengths(
+        self, mb_spec: MicroBatchSpec, lens: List[int]
     ) -> Tuple[List["SequenceSample"], List[int] | np.ndarray, List[int] | np.ndarray]:
-        if mb_spec.max_tokens_per_mb is None:
-            return (
-                self.split(
-                    mb_spec.n_mbs,
-                    min_size=(
-                        1 if not mb_spec.balanced_seqs else self.bs // mb_spec.n_mbs
-                    ),
-                ),
-                np.arange(self.bs),
-                np.arange(self.bs),
-            )
-
-        lens = [sum(lens) for lens in self.seqlens[self._get_split_key()]]
         group_indices = datapack.ffd_allocate(
             lens, mb_spec.max_tokens_per_mb, min_groups=mb_spec.n_mbs
         )
@@ -474,10 +407,24 @@ class SequenceSample:
 
         return sample.split_with_spec(spec), forward_indices, backward_indices
 
-    def divide_into_mbs_balanced(
+    def split(
+        self, mb_spec: MicroBatchSpec
+    ) -> Tuple[List["SequenceSample"], List[int] | np.ndarray, List[int] | np.ndarray]:
+        """Split the data into `n_mbs` parts.
+
+        :param mb_spec: The configuration to split the data into.
+            `n_mbs` is the minimum number of micro-batches,
+            `max_tokens_per_mb` is the maximum number of tokens in each micro-batch.
+            If `max_tokens_per_mb` is a large value, defaults to balanced split.
+        :type mb_spec: MicroBatchSpec
+        """
+        lens = [sum(lens) for lens in self.seqlens[self._get_split_key()]]
+        return self.split_with_lengths(mb_spec, lens)
+
+    def synced_data_parallel_split(
         self, mb_spec: MicroBatchSpec
     ) -> List["SequenceSample"]:
-        mb_inputs, *_ = self.divide_into_mbs(mb_spec)
+        mb_inputs, *_ = self.split(mb_spec)
         all_n_mbs = [None for _ in range(constants.data_parallel_world_size())]
         dist.all_gather_object(
             all_n_mbs, len(mb_inputs), group=constants.data_parallel_group()
@@ -487,7 +434,7 @@ class SequenceSample:
         # This method is called when max_tokens_per_mb is given and during training.
         # In this case, we evenly partition sequences across DP ranks,
         # so the recursion will always terminate when n_mbs = bs // dp_size
-        return self.divide_into_mbs_balanced(
+        return self.synced_data_parallel_split(
             MicroBatchSpec.new(mb_spec, n_mbs=max(all_n_mbs))
         )
 
