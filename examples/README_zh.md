@@ -37,7 +37,7 @@
 ||版本说明|
 |---|---|
 |OS|CentOS 7 / Ubuntu 22.04 或其他满足下方软件运行的系统|
-|Nvidia Driver|版本：550.127.08|
+|NVIDIA Driver|版本：550.127.08|
 |CUDA|版本：12.5|
 |Git LFS|参考：[Git LFS 安装指南](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage) 主要用于下载模型，数据集，AReaL 工程代码|
 |Docker|版本：27.5.1|
@@ -45,11 +45,44 @@
 |镜像|ghcr.io/inclusionai/areal-runtime:v0.1.0 这个镜像中包含运行依赖和 Ray 的相关组件|
 
 
-# 运行环境配置
-在准备好节点和系统环境之后，按照本节的说明下载 AReaL 工程代码，模型，数据集，然后启动 Ray 集群。
+由于 NVIDIA Driver 和 CUDA 的安装以及共享存储的挂载与节点和系统版本有关，请自行完成安装，本教程不进行介绍。
 
-- 如果是多节点训练，请先将共享存储挂载到每个节点的 `/storage` 目录上，后续下载的内容都将放在这个目录下，并且最后挂载到 AReaL 环境镜像的容器里。
-- 由于使用了共享存储，下载操作只需要在一个节点上进行。
+如果是多节点训练，请先将共享存储挂载到每个节点的 `/storage` 目录上，后续下载的内容都将放在这个目录下，并且 AReaL 容器也会将该目录挂载到容器的 `/storage`，以便训练时访问。
+ 
+
+# 一键搭建环境并启动训练
+
+本节提供一个一键安装脚本，自动完成节点的环境配置工作：
+1. 安装 Docker，Git LFS，NVIDIA Container Toolkit
+2. 在每个节点上拉取 AReaL 镜像
+3. 下载 AReaL 代码，模型，数据集
+4. 搭建 Ray 集群
+5. 【可选】在 Ray 集群中启动一个训练任务
+
+请选择任意一个节点执行如下操作：
+
+```bash
+mkdir -p /storage/codes
+cd /storage/codes/
+git clone https://github.com/inclusionAI/AReaL.git
+cd /storage/codes/AReaL
+
+python ./examples/env/setup_env_and_start_train.py setup --private_key_file /path/to/ssh_key --ssh_port 22 --username root --hostnames NODE_IP_1 NODE_IP_2 NODE_IP_3 NODE_IP_4 --train_param 1.5B_n1
+```
+
+`setup_env_and_start_train.py setup` 参数说明：
+
+- `private_key_file`：SSH 私钥文件，用于连接节点
+- `ssh_port`：SSH 端口
+- `username`：SSH 用户名
+- `hostnames`：IP 列表，用空格分割。可以是 1/4/16 个节点 IP
+- `train_param`：【可选】训练参数，用于在完成环境搭建后直接启动一个训练任务。可选值为 `1.5B_n1`，`1.5B_n4`，`1.5B_n16`，`7B_n4`，`7B_n16`
+
+如果因为环境差异，无法运行本节中的脚本或运行出现错误，也可以按照本教程后续章节的内容手动完成环境配置和启动训练。
+
+# 环境配置
+
+由于使用了共享存储，下载操作只需要在一个节点上完成。
 
 ## 代码和集群配置
 将 AReaL 项目代码克隆到 `/storage/codes` 中：

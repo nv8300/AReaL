@@ -8,7 +8,7 @@ NODES="16"
 ALLOCATION_MODE="vllm.d64p1m1+d32p2m1"
 MAX_NEW_TOKENS=$4
 MAX_NUM_SEQS=128
-PPO_MBS=1
+PPO_MBS=4
 KL_CTL=0.001
 
 MAX_TOKEN_PER_MB=$(expr 2048 + ${MAX_NEW_TOKENS} + 1024)
@@ -105,9 +105,11 @@ python3 -m realhf.apps.quickstart ppo-math \
     ppo.adv_norm=True ppo.value_norm=True \
     mask_too_long=False \
     ppo.discount=1.0 \
-    actor.optimizer.lr=1e-6 \
-    critic.optimizer.lr=5e-6 \
+    actor.optimizer.lr=1e-5 \
     actor.optimizer.lr_scheduler_type=constant \
+    actor.optimizer.initial_loss_scale=262144.0 \
+    actor.optimizer.loss_scale_window=5 \
+    actor.optimizer.hysteresis=2 \
     actor_gen.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
     ref_inf.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
     rew_inf.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \

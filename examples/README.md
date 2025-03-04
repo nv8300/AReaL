@@ -29,18 +29,52 @@ This tutorial provides a Docker image. Below are the tested software versions:
 | | Version |
 |---|:---:|
 | OS | CentOS 7 / Ubuntu 22.04 or any other system that meets the software requirements below |
-| Nvidia Driver | 550.127.08 |
+| NVIDIA Driver | 550.127.08 |
 | CUDA | 12.5 |
 | Git LFS | Refer to: https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage. Mainly used for downloading models, datasets, and AReaL project code. |
 | Docker | 27.5.1 |
 |NVIDIA Container Toolkit|[Installing the NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)|
 | AReaL Image | `ghcr.io/inclusionai/areal-runtime:v0.1.0`. This image includes AReaL's runtime dependencies and Ray components. |
 
-# Environment Setup
-After preparing the nodes and the OS, follow this section to download the AReaL project code, models, and datasets, then start the Ray cluster.
+Since the installation of NVIDIA Drivers and CUDA, as well as the mounting of shared storage, depends on node configurations and system versions, please complete these installations independently. This tutorial does not cover their setup.
 
-- For multi-node training, mount the shared storage to the `/storage` directory on each node. All downloaded content will be stored here and later mounted into the AReaL environment image container.
-- Since shared storage is used, downloading only needs to be done on one node.
+For multi-node training, ensure that the shared storage is mounted to the `/storage` directory on every node. All subsequent downloads and resources will be stored in this directory. The AReaL container will also mount this directory to `/storage` within the container, enabling seamless access during training.
+
+
+# One-Click Environment Setup and Training Launch
+
+This section provides a one-click setup script to automatically configure the node environment:
+
+1. Install Docker, Git LFS, and NVIDIA Container Toolkit
+2. Pull the AReaL image on each node
+3. Download AReaL code, models, and datasets
+4. Set up a Ray cluster
+5. [Optional] Launch a training task within the Ray cluster
+
+Please perform the following operations on any chosen node:
+
+```bash
+mkdir -p /storage/codes
+cd /storage/codes/
+git clone https://github.com/inclusionAI/AReaL.git
+cd /storage/codes/AReaL
+
+python ./examples/env/setup_env_and_start_train.py setup --private_key_file /path/to/ssh_key --ssh_port 22 --username root --hostnames NODE_IP_1 NODE_IP_2 NODE_IP_3 NODE_IP_4 --train_param 1.5B_n1
+```
+
+`setup_env_and_start_train.py setup` arguments：
+
+- `private_key_file`: SSH secret key. Using by connecting nodes.
+- `ssh_port`: SSH port
+- `username`: SSH username
+- `hostnames`: IP list. Split with space. Can be 1, 4, or 16 node IPs
+- `train_param`: [Optional] Training parameters used to launch a training task immediately after environment setup. Valid options are: `1.5B_n1`, `1.5B_n4`, `1.5B_n16`, `7B_n4`, `7B_n16`
+
+If the script in this section fails to execute or encounters errors due to environmental discrepancies, you may manually configure the environment and launch training by following the instructions in the subsequent sections of this tutorial.
+
+# Environment Setup
+
+Since shared storage is used, downloading only needs to be done on one node.
 
 ## Code and Cluster Configuration
 Clone the AReaL project code to `/storage/codes`:
