@@ -103,20 +103,30 @@ We have listed detailed hardware requirements and the approach to setting up env
 
 *Figure 2. Total time consumption for RL training under varying computational resource settings for 10 epochs.*
 
-## RL Training LRM directly from the Base Model
+## Qwen2.5-7B-Zero RL Training
 
-We start RL training from the base model Qwen2.5-7B with DeepSeek-R1-Zero style training.  The initial training curves and results are presented below. As the training progresses, both the rewards and the response lengths gradually grow. A similar trend is also revealed [Open-Reasoner-Zero](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero). **The simultaneous growth of average response lengths and rewards** can be considered as a critical sign of **the emergent deep thinking capabilities of LRM** to solve challenging reasoning problems.
+We start RL training from the base model Qwen2.5-7B with DeepSeek-R1-Zero style training. The initial training curves and results are presented below. We conducted experiments on the data released by [Open-Reasoner-Zero](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero). As the training progresses, both the rewards and the response lengths gradually grow. A similar trend is also revealed [Open-Reasoner-Zero](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero). **The simultaneous growth of average response lengths and rewards** can be considered as a critical sign of **the emergent deep thinking capabilities of LRM** to solve challenging reasoning problems.
 
 
-![undefined](/assets/7b_zero_curve.png) 
+![undefined](/assets/7b_zero_training_curve.png) 
 *Figure 3. The training curve of Qwen2.5-7B-Zero during RL training*
 
-|          | MATH500  | AIME 2024 | AMC 2023 |
+
+We evaluate the performances of the intermediate checkpoints on the MATH500 and AIME24 datasets in the following figure. It appears that both the accuracy and the generated length continue to show an upward trend.
+
+![undefined](/assets/7b_zero_eval_acc.png)
+*Figure 4. The test accuracy and response length evaluated on the MATH500 and AIME24 datasets.*
+
+We also conduct a experiment on the [DeepScalseR](https://github.com/agentica-project/deepscaler) dataset, which demonstrates a similar training trend. The evaluation results are presented in the following table.
+
+|          | MATH-500  | AIME 2024 | AMC 2023 |
 | -------- | -------- | --------- | -------- |
 | Qwen2.5-7B | 34.0 | 2.0 | 17.8 |
-| Open-Reasoner-Zero-7B Step = 150 | ~77 | ~15 | - |
-| Qwen2.5-7B-Zero    Step = 150 KL = 0 | 73.9 | 16.8 | 51.1 |
-| Qwen2.5-7B-Zero    Step = 150 KL = 0.001 | 76.3 | 13.3 | 53.7 |
+| Open-Reasoner-Zero-7B, Step=150 | ~77 | ~15 | - |
+| Qwen2.5-7B-Zero,    Step=150 Dataset=DeepScaleR | 75.9 | 13.9 | 56.1 |
+| Qwen2.5-7B-Zero,    Step=150 Dataset=ORZ | 77.3 | 13.9 | 57.1 |
+| Qwen2.5-7B-Zero,    Step=200 Dataset=ORZ | 78.0 | 14.5 | 58.7 |
+Table 2. Evaluation on AIME 2024, AMC 2023, and MATH-500. The results are reported using Pass@1 accuracy, which are averaged over 32 samples for each problem and evaluated with a temperature of 1.0.
 
 - **Training:** 
 
@@ -128,7 +138,7 @@ wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data
 wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/id2info.json?download=true
 
 MODEL_PATH=${path_to_Qwen2.5-7B}
-bash ./examples/train_7B_zero_n16_on_ray.sh $MODEL_PATH $DATA_PATH/prompts_for_zero.jsonl $DATA_PATH/id2info.json 16384
+bash ./examples/train_7B_zero_n16_on_ray.sh $MODEL_PATH $DATA_PATH/prompts_for_zero.jsonl $DATA_PATH/id2info.json 24000
 
 ```
 
