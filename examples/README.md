@@ -358,7 +358,7 @@ The last entry is used to explain the meaning of key fields:
   - `importance_weight`: The average importance sampling ratio across all tokens in the PPO loss. This value is typically close to 1.
   - `actor_clip_ratio`: The ratio of tokens clipped in the PPO loss to the total number of tokens. This is usually less than 0.1.
   - `actor_loss`: The PPO loss. **It does not show a clear upward or downward trend during training** and should not be used as a reference for model performance.
-  - `avg_seq_len`: The average length of all sampled answers in this step. In a full multi-stage training process, this value will first decrease and then increase.
+  - `avg_seq_len`: The average length of all sequences (i.e., prompts with sampled answers) in this step. In a full multi-stage training process, this value will first decrease and then increase.
   - `no_eos_ratio`: The ratio of sampled answers truncated due to exceeding the maximum generation length. An increase in this value indicates that the average length of answers is increasing.
 
 # Evaluation
