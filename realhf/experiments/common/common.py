@@ -183,6 +183,10 @@ class CommonExperimentConfig(Experiment):
         torch.cuda.empty_cache() before each RPC in model worker
         If enabled, there will be a ~0.1s overhead per RPC.
     :type torch_cache_mysophobia: bool
+    :param cpus_per_master_worker: The number of CPUs for each master worker.
+    :param mem_per_master_worker: The size of memory for each master worker, measured in MB.
+    :param cpus_per_model_worker: The number of CPUs for each model worker.
+    :param mem_per_model_worker: The size of memory for each model worker, measured in MB.
     """
 
     experiment_name: str = MISSING
@@ -210,6 +214,10 @@ class CommonExperimentConfig(Experiment):
         default_factory=ExperimentSaveEvalControl
     )
     torch_cache_mysophobia: bool = True
+    cpus_per_master_worker: int = 4
+    mem_per_master_worker: int = 20000
+    cpus_per_model_worker: int = 4
+    mem_per_model_worker: int = 90000
 
     @property
     def models(self) -> Dict[str, ModelTrainEvalConfig]:
@@ -324,18 +332,18 @@ class CommonExperimentConfig(Experiment):
             master_worker=TasksGroup(
                 count=1,
                 scheduling=Scheduling.master_worker_default(
-                    cpu=4,
-                    mem=20000,
+                    cpu=self.cpus_per_master_worker,
+                    mem=self.mem_per_master_worker,
                     nodelist=self.nodelist,
                 ),
             ),
             model_worker=TasksGroup(
                 count=self.n_nodes * self.n_gpus_per_node,
                 scheduling=Scheduling.model_worker_default(
-                    cpu=4,
+                    cpu=self.cpus_per_model_worker,
                     gpu=1,
                     gpu_type=cluster_spec.gpu_type,
-                    mem=90000,
+                    mem=self.mem_per_model_worker,
                     nodelist=self.nodelist,
                 ),
             ),
