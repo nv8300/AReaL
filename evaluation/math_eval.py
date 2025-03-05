@@ -137,7 +137,7 @@ def generate_in_parallel(requests, model_args, sampling_params, data_parallel_si
     def run_inference_one_model(
         model_args: dict, sampling_params, requests, cuda_visisble_devices
     ):
-        os.environ["VLLM_LOGGING_LEVEL"] = "DEBUG"
+        os.environ["VLLM_LOGGING_LEVEL"] = "INFO"
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
             [str(x) for x in cuda_visisble_devices]
         )

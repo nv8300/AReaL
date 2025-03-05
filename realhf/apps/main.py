@@ -18,6 +18,7 @@ import realhf.base.recover as recover
 import realhf.scheduler.client as sched_client
 import realhf.system as system
 from realhf.scheduler.client import JobException, JobState
+from realhf.scheduler.evaluator import AutomaticEvaluator
 
 logger = logging.getLogger("main", "system")
 
@@ -85,9 +86,16 @@ def main_start(args, recover_count: int = 0):
     # Run initial_setup to go through all sanity checks.
     try:
         exp_cfg = experiment.initial_setup()
+        assert isinstance(exp_cfg, config_package.ExperimentConfig)
         exp_cfg.lazy_init()
     except Exception as e:
         raise RuntimeError("Experiment initial setup failed.") from e
+
+    evaluator = (
+        AutomaticEvaluator(exp_cfg.evaluator, exp_cfg.wandb)
+        if exp_cfg.auto_eval
+        else None
+    )
 
     if args.mode == "local":
         assert (
@@ -167,6 +175,7 @@ def main_start(args, recover_count: int = 0):
         expr_name=expr_name,
         trial_name=trial_name,
         schedule_strategy=args.schedule_strategy,
+        evaluator=evaluator,
     )
 
     setup = experiment.scheduling_setup()

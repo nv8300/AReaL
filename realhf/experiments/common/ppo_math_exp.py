@@ -544,12 +544,15 @@ class PPOMATHConfig(CommonExperimentConfig):
         ######### The main difference from normal PPO #########
 
         model_worker = self._get_model_worker_configs(rpc_allocs)
+        self.auto_eval_config.initial_checkpoint_path = self.actor.path
 
         return ExperimentConfig(
             exp_ctrl=self.exp_ctrl,
             wandb=self.wandb,
             model_rpcs=[rpc_alloc.rpc for rpc_alloc in rpc_allocs],
             model_worker=model_worker,
+            auto_eval=self.auto_eval,
+            evaluator=self.auto_eval_config,
         )
 
 

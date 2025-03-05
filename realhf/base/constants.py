@@ -105,7 +105,6 @@ BASE_ENVIRONS = {
     # "TORCH_SHOW_CPP_STACKTRACES": "1",
     # "RAY_DEDUP_LOGS": "0",  # disable ray log deduplication
     "CUDA_DEVICE_MAX_CONNECTIONS": "1",
-    "PYTHONUSERBASE": "/nonsense",  # a random PYTHONUSERBASE to avoid local user site-packages interference
     "OMP_NUM_THREADS": str(min(os.cpu_count(), 32)),
     # torch.distributed.all_reduce does not free the input tensor until
     # the synchronization point. This causes the memory usage to grow

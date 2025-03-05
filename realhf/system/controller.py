@@ -450,7 +450,7 @@ class RayController:
 
     It uses the basic Controller to configure workers. Besides, it
     launchs all remote workers using Ray, instead of submitting them to
-    the scheduelr.
+    the scheduler.
     """
 
     def __init__(self, experiment_name, trial_name):

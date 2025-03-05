@@ -14,6 +14,7 @@ import realhf.base.logging as logging
 from realhf.base.cluster import spec as cluster_spec
 from realhf.base.constants import SLURM_LOCK_FILE_NAME as LOCK_FILE_NAME
 from realhf.scheduler.client import JobException, JobInfo, JobState, SchedulerClient
+from realhf.scheduler.evaluator import AutomaticEvaluator
 from realhf.scheduler.slurm.utils import (
     SlurmLaunchInfo,
     SlurmResource,
@@ -25,12 +26,19 @@ logger = logging.getLogger("Slurm-scheduler")
 
 SCHEDULING_RETRY_INTERVAL_SECONDS = 30
 SCHEDULING_TIMEOUT_MAX_SECONDS = 3600 * 24
+SCHEDULER_WAIT_CHECK_TIME_INTERVAL = 5
 
 
 class SlurmSchedulerClient(SchedulerClient):
     """Uses Slurm (https://slurm.schedmd.com/overview.html)."""
 
-    def __init__(self, expr_name, trial_name, schedule_strategy):
+    def __init__(
+        self,
+        expr_name: str,
+        trial_name: str,
+        schedule_strategy: str,
+        evaluator: Optional[AutomaticEvaluator],
+    ):
         super().__init__(expr_name, trial_name)
 
         self.__schedule_strategy = schedule_strategy
@@ -40,6 +48,7 @@ class SlurmSchedulerClient(SchedulerClient):
 
         self.__submission_counter = defaultdict(int)
         self.__wprocs_counter = defaultdict(int)
+        self.__evaluator = evaluator
 
     def submit(self, worker_type, cmd, **kwargs):
         self.submit_array(worker_type, cmd, count=1, **kwargs)
@@ -245,6 +254,8 @@ class SlurmSchedulerClient(SchedulerClient):
             if len(left) < num_jobs_left:
                 num_jobs_left = len(left)
                 logger.info(f"Waiting for {num_jobs_left} jobs.")
+            if self.__evaluator is not None:
+                self.__evaluator.step()
             if deadline is not None and time.time() > deadline:
                 raise TimeoutError(
                     f"Timeout waiting for {self.run_name}: {', '.join(sorted(left))}"
@@ -276,7 +287,7 @@ class SlurmSchedulerClient(SchedulerClient):
                     left.remove(job_slurm_name)
                     if update:
                         self.__committed_jobs.pop(job_slurm_name)
-            time.sleep(2)
+            time.sleep(SCHEDULER_WAIT_CHECK_TIME_INTERVAL)
 
     def __update_all(self):
         states = []

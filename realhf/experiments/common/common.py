@@ -29,6 +29,7 @@ from realhf.api.core.config import (
 from realhf.api.core.dfg import MFCDef, ModelInterfaceType, build_graph
 from realhf.api.core.model_api import HF_MODEL_FAMILY_REGISTRY
 from realhf.api.core.system_api import (
+    AutomaticEvaluator,
     Experiment,
     ExperimentConfig,
     ExperimentSaveEvalControl,
@@ -183,6 +184,12 @@ class CommonExperimentConfig(Experiment):
         torch.cuda.empty_cache() before each RPC in model worker
         If enabled, there will be a ~0.1s overhead per RPC.
     :type torch_cache_mysophobia: bool
+    :param auto_eval: Whether to automatic evaluation in training. When enabled, an evaluation
+        job is submitted whenever a checkpoint is saved, and the result will be logged on disk and
+        on wandb if wandb is active.
+    :type auto_eval: bool
+    :param auto_eval_config: Configuration for automatic evaluation.
+    :type auto_eval_config: AutomaticEvaluator
     :param cpus_per_master_worker: The number of CPUs for each master worker.
     :param mem_per_master_worker: The size of memory for each master worker, measured in MB.
     :param cpus_per_model_worker: The number of CPUs for each model worker.
@@ -214,6 +221,12 @@ class CommonExperimentConfig(Experiment):
         default_factory=ExperimentSaveEvalControl
     )
     torch_cache_mysophobia: bool = True
+    # Options for automatic evaluation
+    auto_eval: bool = False
+    auto_eval_config: AutomaticEvaluator = dataclasses.field(
+        default_factory=AutomaticEvaluator
+    )
+    # Options for worker resources
     cpus_per_master_worker: int = 4
     mem_per_master_worker: int = 20000
     cpus_per_model_worker: int = 4
@@ -716,6 +729,8 @@ class CommonExperimentConfig(Experiment):
             wandb=self.wandb,
             model_rpcs=[rpc_alloc.rpc for rpc_alloc in rpc_allocs],
             model_worker=model_worker,
+            auto_eval=self.auto_eval,
+            evaluator=self.auto_eval_config,
         )
 
     def __check_legal_allocation_options(self):

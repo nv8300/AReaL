@@ -963,9 +963,10 @@ class MasterWorker(worker_base.Worker):
             mode=self.wandb_config.mode,
             entity=self.wandb_config.entity,
             project=self.wandb_config.project or constants.experiment_name(),
-            name=self.wandb_config.name or constants.trial_name(),
+            name=self.wandb_config.name or f"{constants.trial_name()}_train",
             job_type=self.wandb_config.job_type,
-            group=self.wandb_config.group,
+            group=self.wandb_config.group
+            or f"{constants.experiment_name()}_{constants.trial_name()}",
             notes=self.wandb_config.notes,
             tags=self.wandb_config.tags,
             config=self.wandb_config.config,
@@ -973,6 +974,7 @@ class MasterWorker(worker_base.Worker):
                 constants.LOG_ROOT, constants.experiment_name(), constants.trial_name()
             ),
             force=True,
+            id=f"{constants.experiment_name()}_{constants.trial_name()}_train",
             resume="allow",
             settings=wandb.Settings(start_method="fork"),
         )

@@ -5,6 +5,7 @@ import subprocess
 from glob import glob
 
 import numpy as np
+import wandb
 from rm_maj_eval import group_pred
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -29,6 +30,7 @@ def parse_args():
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--evaluate_train", action="store_true")
     parser.add_argument("--max_gen_tokens", default=32768, type=int)
+
     args = parser.parse_args()
     if args.output_path is None:
         args.output_path = args.model_path
@@ -145,7 +147,7 @@ def process_single_data_name(args, data_name, base_dir, tokenizer):
 
 if __name__ == "__main__":
     args = parse_args()
-
+    print(f"Evaluation output to {args.output_path}")
     assert args.num_sample_nodes * args.samples_per_node >= args.n_sampling
 
     eval_dir = (
@@ -155,6 +157,7 @@ if __name__ == "__main__":
     )
 
     base_dir = os.path.join(args.output_path, eval_dir)
+    os.makedirs(base_dir, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
     result_path = os.path.join(base_dir, f"aggregate_parallel_{args.prompt_type}.json")
 
@@ -228,10 +231,10 @@ if __name__ == "__main__":
         from prettytable import PrettyTable
 
         table = PrettyTable()
-        filed_names = ["dataset"] + list(all_results[args.data_names[0]].keys())
-        table.field_names = filed_names
+        field_names = ["dataset"] + list(all_results[args.data_names[0]].keys())
+        table.field_names = field_names
         for k, v in all_results.items():
-            table.add_row([k, *[round(v[x], 1) for x in filed_names[1:]]])
+            table.add_row([k, *[round(v[x], 1) for x in field_names[1:]]])
 
         print(table)
     except:
