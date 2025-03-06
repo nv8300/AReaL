@@ -2,20 +2,14 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 
-import contextlib
 import dataclasses
-import functools
 import itertools
-import os
-import pprint
-import re
 from collections import defaultdict
 from typing import *
 
 import numpy as np
 import transformers
 from omegaconf import MISSING, OmegaConf
-from transformers.utils import is_accelerate_available
 
 import realhf.base.logging as logging
 from realhf.api.core.config import (
@@ -26,7 +20,7 @@ from realhf.api.core.config import (
     ModelShardID,
     StandaloneModelShardAbstraction,
 )
-from realhf.api.core.dfg import MFCDef, ModelInterfaceType, build_graph
+from realhf.api.core.dfg import MFCDef, ModelInterfaceType
 from realhf.api.core.model_api import HF_MODEL_FAMILY_REGISTRY
 from realhf.api.core.system_api import (
     AutomaticEvaluator,
@@ -38,6 +32,7 @@ from realhf.api.core.system_api import (
     Scheduling,
     TasksGroup,
     WandBConfig,
+    TensorBoardConfig,
 )
 from realhf.api.quickstart.device_mesh import (
     DeviceMesh,
@@ -138,6 +133,9 @@ class CommonExperimentConfig(Experiment):
     :param wandb: The WandB initialization config.
         See https://docs.wandb.ai/ref/python/init/ for details.
     :type wandb: WandbConfig
+    :param tensorboard: The tensorboard initialization config.
+        Only the field of `path` is needed to specify the directory of saving the tensorboard events.
+    :type tensorboard: TensorBoardConfig
     :param image_name: The name of the Docker image used by the controller.
         This parameter is only used in SLURM mode.
     :type image_name: str or None
@@ -205,6 +203,7 @@ class CommonExperimentConfig(Experiment):
     partition: str = "dev"
     schedule_strategy: str = "empty_first"
     wandb: WandBConfig = dataclasses.field(default_factory=WandBConfig)
+    tensorboard: TensorBoardConfig = dataclasses.field(default_factory=TensorBoardConfig)
     image_name: Optional[str] = None
     recover_mode: str = "disabled"
     recover_retries: int = 1
@@ -727,6 +726,7 @@ class CommonExperimentConfig(Experiment):
         return ExperimentConfig(
             exp_ctrl=self.exp_ctrl,
             wandb=self.wandb,
+            tensorboard=self.tensorboard,
             model_rpcs=[rpc_alloc.rpc for rpc_alloc in rpc_allocs],
             model_worker=model_worker,
             auto_eval=self.auto_eval,

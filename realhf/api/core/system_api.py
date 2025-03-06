@@ -2,16 +2,9 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 
-import collections
-import copy
 import dataclasses
-import enum
-import getpass
-import itertools
-import math
 import os
-import sys
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import realhf.api.core.dfg as dfg
 from realhf.api.core.config import (
@@ -278,9 +271,15 @@ class WandBConfig:
 
 
 @dataclasses.dataclass
+class TensorBoardConfig:
+    path: Optional[str] = None
+
+
+@dataclasses.dataclass
 class ExperimentConfig:
     exp_ctrl: ExperimentSaveEvalControl
     wandb: WandBConfig
+    tensorboard: TensorBoardConfig
     # dataflow
     model_rpcs: List[dfg.MFCDef]
     model_worker: List[ModelWorker] = dataclasses.field(default_factory=list)

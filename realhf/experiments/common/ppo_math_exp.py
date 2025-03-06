@@ -3,12 +3,10 @@
 # Licensed under the Apache License, Version 2.0 (the "License").
 import copy
 import dataclasses
-import math
 import os
 import pprint
 from typing import *
 
-import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 import realhf.base.logging as logging
@@ -21,9 +19,9 @@ from realhf.api.core.dfg import MFCDef, ParamReallocHook
 from realhf.api.core.model_api import GenerationHyperparameters
 from realhf.api.core.system_api import ExperimentConfig
 from realhf.api.quickstart.dataset import PromptOnlyDatasetConfig
-from realhf.api.quickstart.device_mesh import DeviceMesh, MFCConfig, RPCAllocation
+from realhf.api.quickstart.device_mesh import MFCConfig
 from realhf.api.quickstart.entrypoint import register_quickstart_exp
-from realhf.api.quickstart.model import ModelTrainEvalConfig, ParallelismConfig
+from realhf.api.quickstart.model import ModelTrainEvalConfig
 from realhf.experiments.common.common import CommonExperimentConfig
 from realhf.experiments.common.utils import resolve_replica_ids, resolve_rpc_hooks
 
@@ -549,6 +547,7 @@ class PPOMATHConfig(CommonExperimentConfig):
         return ExperimentConfig(
             exp_ctrl=self.exp_ctrl,
             wandb=self.wandb,
+            tensorboard=self.tensorboard,
             model_rpcs=[rpc_alloc.rpc for rpc_alloc in rpc_allocs],
             model_worker=model_worker,
             auto_eval=self.auto_eval,

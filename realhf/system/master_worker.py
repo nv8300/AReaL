@@ -7,23 +7,18 @@ import collections
 import copy
 import dataclasses
 import gc
-import getpass
-import itertools
 import os
-import pprint
 import random
-import re
 import time
 import uuid
 from collections import defaultdict
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Set, Tuple
 
 import colorama
 import networkx as nx
 import numpy as np
-import torch
-import torch.distributed
 import wandb
+from tensorboardX import SummaryWriter
 
 import realhf.api.core.config as config_api
 import realhf.api.core.data_api as data_api
@@ -37,7 +32,6 @@ from realhf.api.core.config import ModelName
 from realhf.api.core.model_api import ReaLModelConfig
 from realhf.base import (
     constants,
-    datapack,
     logging,
     name_resolve,
     names,
@@ -456,6 +450,7 @@ async def model_rpc_reply_func(
     buffer: AsyncIOSequenceBuffer,
     model_topos: Dict[str, topology.PipeModelDataParallelTopology],
     ctrl: RPCCorountineControl,
+    summary_writer: SummaryWriter,
 ):
     topo = model_topos[rpc.model_name]
     dp_size = topo.get_dim("data")
@@ -494,6 +489,9 @@ async def model_rpc_reply_func(
 
             if isinstance(res, Dict):
                 wandb.log(res, step=ctrl.step_info.global_step)
+                if summary_writer is not None:
+                    for key, val in res.items():
+                        summary_writer.add_scalar(f"{key}", val, ctrl.step_info.global_step)
 
         logger.info(
             f"Model rpc {rpc.name} finished. Run time {time.perf_counter() - tik:.4f}s."
@@ -919,6 +917,9 @@ class MasterWorker(worker_base.Worker):
         )
 
         self.__data_owner = {}
+        self.__summary_writer = None
+        if self.tensorboard_config.path is not None:
+            self.__summary_writer = SummaryWriter(log_dir=self.tensorboard_config.path)
 
         logger.info(f"Creating asyncio coroutines...")
 
@@ -946,6 +947,7 @@ class MasterWorker(worker_base.Worker):
                     buffer=self.__seqbuffer,
                     model_topos=self.__model_topos,
                     ctrl=self.__rpc_ctrl,
+                    summary_writer=self.__summary_writer,
                 )
             )
             coroutine_tasks += [request_task, reply_task]
@@ -1312,6 +1314,8 @@ class MasterWorker(worker_base.Worker):
         )
 
         wandb.finish()
+        if self.__summary_writer is not None:
+            self.__summary_writer.close()
         gc.collect()
         self.__initialized = False
         self.pause()
