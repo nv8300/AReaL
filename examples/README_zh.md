@@ -14,7 +14,7 @@
 | 内存    | 1 TB    |每节点 1 TB|每节点 1 TB    |每节点 1 TB    |每节点 1 TB    |
 | 通信    | NVSwitch    |NVSwitch+RoCE 带宽 3.2 Tbps|NVSwitch+RoCE 带宽 3.2 Tbps|NVSwitch+RoCE 带宽 3.2 Tbps|NVSwitch+RoCE 带宽 3.2 Tbps|
 | 存储    | 1TB    |共享存储（NAS）10TB |共享存储（NAS）10TB |共享存储（NAS）10TB |共享存储（NAS）10TB |
-|总训练时间（小时）|520|150|50|410|130|
+|总训练时间（小时）|520|150|50|680|200|
 
 关于硬件要求的说明：
 
@@ -27,7 +27,7 @@
 -  总训练时间 = Epoch 数量 * 每个 Epoch 的 Step 数量 * 单步训练时间
 
     - Epoch 数量默认为 10
-    - 每个 Epoch 的 Step 数量与数据集大小有关。利用我们的数据集， 1.5B 模型每个epoch需要训练 39 步，7B 模型每个epoch需要训练 19 步。不同大小模型使用的batch size也不同
+    - 每个 Epoch 的 Step 数量与数据集大小和 Batch Size 有关。比如数据集为 40315 条，Batch Size 为 1024 时，每个 Epoch 需要训练 40315 / 1024 = 39.37 步，最终一个 Epoch 最少训练 39 步，最多训练 40 步。
     - 单步训练时间与 GPU 卡数有关
 
 ## 软件要求
