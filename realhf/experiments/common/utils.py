@@ -10,7 +10,7 @@ import re
 from typing import *
 
 import numpy as np
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from realhf.api.core.config import (
     ModelBackendAbstraction,
@@ -317,3 +317,9 @@ class AllocationMode:
                 return
             allocs[k] = v["*"]
         return allocs
+
+
+def asdict(cfg):
+    if isinstance(cfg, (OmegaConf, DictConfig)):
+        return OmegaConf.to_container(cfg, resolve=True)
+    return dataclasses.asdict(cfg)

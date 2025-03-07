@@ -161,6 +161,7 @@ def main_start(args, recover_count: int = 0):
         REAL_RECOVER_RUN="1" if is_recover_run else "0",
         REAL_SAVE_RECOVER_STATES="1" if save_recover_states else "0",
         REAL_MATH_METADATA_PATH=os.getenv("REAL_MATH_METADATA_PATH", ""),
+        REAL_USE_V2_WORKER=os.getenv("REAL_USE_V2_WORKER", "0"),
     )
     for k, v in BASE_ENVIRONS.items():
         os.environ[k] = v

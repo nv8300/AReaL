@@ -340,6 +340,8 @@ class ModelWorker(worker_base.Worker):
             for tmp_sample in self.__dataloader:
                 self.__raw_samples += tmp_sample.meta().unpack()
 
+            self.__data_generator = enumerate(self.__dataloader)
+
         self.__models: Dict[ModelName, model_api.Model] = dict()
         self.__model_is_handle: Dict[ModelName, bool] = dict()
         self.__interfaces: Dict[ModelName, model_api.ModelInterface] = dict()
@@ -581,7 +583,10 @@ class ModelWorker(worker_base.Worker):
         elif request.handle_name == "fetch":
             dp_rank = int(re.search(r"__data(\d+)__", request.handler).group(1))
             assert self.__has_dataset
-            if request.data["first_batch"]:
+            # Fetch.
+            try:
+                self.__dataset_batch_counter, cur_sample = next(self.__data_generator)
+            except StopIteration:
                 # Upon the first fetch request, filter dataset and create dataloader.
                 eval_scores_path = os.path.join(
                     constants.MODEL_SAVE_ROOT,
@@ -595,10 +600,8 @@ class ModelWorker(worker_base.Worker):
                     constants.trial_name(),
                     f"dataset_indices_{dp_rank}.npy",
                 )
-                if (
-                    hasattr(self.__dataset, "filter")
-                    and not request.data["first_poll"]
-                    and os.path.exists(eval_scores_path)
+                if hasattr(self.__dataset, "filter") and os.path.exists(
+                    eval_scores_path
                 ):
                     # Don't filter dataset on the first poll after recover.
                     with open(eval_scores_path, "r", encoding="utf-8") as f:
@@ -621,9 +624,7 @@ class ModelWorker(worker_base.Worker):
                     generator=g,
                 )
                 self.__data_generator = enumerate(self.__dataloader)
-
-            # Fetch.
-            self.__dataset_batch_counter, cur_sample = next(self.__data_generator)
+                self.__dataset_batch_counter, cur_sample = next(self.__data_generator)
 
             # Defer data that has not been used in the previous epoch.
             data_loaded = []
@@ -707,9 +708,6 @@ class ModelWorker(worker_base.Worker):
                 # e.g., data transfer, parameter syncrhonization.
                 pass
             elif request.handle_name == "initialize":
-                assert not self.__model_is_handle[
-                    request.handler.model_name
-                ], request.handler.model_name
                 self.__models[request.handler.model_name] = self._backend.initialize(
                     self._model, data
                 )

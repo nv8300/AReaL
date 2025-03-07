@@ -13,11 +13,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import realhf.api.core.system_api as system_api
-from realhf.base import (
-    logging,
-    name_resolve,
-    names,
-)
+from realhf.base import logging, name_resolve, names
 from realhf.base.gpu_utils import set_cuda_device
 
 logger = logging.getLogger("worker")

@@ -32,7 +32,7 @@ class MockPipeTrainInstrSet(PipeTrainInstrSet):
     Used for testing only.
     """
 
-    optimizer: torch.optim.Optimizer
+    optim: torch.optim.Optimizer
 
     def _exec_backward_pass(
         self,
@@ -78,14 +78,19 @@ class MockPipeTrainInstrSet(PipeTrainInstrSet):
         micro_batch_id: int,
         step_id: int,
     ):
-        self.optimizer.step()
+        self.optim.step()
+
+
+class AdamWithLossScale(torch.optim.Adam):
+    def get_loss_scale(self) -> torch.Tensor:
+        return torch.tensor([1.0], device=constants.current_device())
 
 
 class MockTrainEngine(model_api.PipelinableEngine):
 
-    def __init__(self, module: ReaLModel, optimizer: torch.optim.Optimizer):
+    def __init__(self, module: ReaLModel, optimizer: AdamWithLossScale):
         self.module = module
-        self.optimizer = optimizer
+        self.optim = optimizer
 
         self.inf_engine = PipelinableInferenceEngine(module)
         if constants.pipe_parallel_world_size() > 1:
@@ -111,10 +116,10 @@ class MockTrainEngine(model_api.PipelinableEngine):
         token_normalize_scope: str,
         version_steps: int,
     ):
-        self.optimizer.zero_grad()
+        self.optim.zero_grad()
         if constants.pipe_parallel_world_size() > 1:
             # Fusing the minibatched forward-backward in a pipeline training schedule.
-            instr_set = MockPipeTrainInstrSet(self.optimizer)
+            instr_set = MockPipeTrainInstrSet(self, self.optim)
             # NOTE: When training with pipeline parallel, num micro batches should be
             # larger than 2 x num_pipeline_stages to avoid idle time.
             return self.pipe_runner.train_batch(
@@ -222,7 +227,7 @@ class MockTrainBackend(model_api.ModelBackend):
             raise ValueError("MegatronTrainBackend only supports ReaLModel.")
 
         if self.optimizer_name == "adam":
-            optimizer = torch.optim.Adam(module.parameters(), **self.optimizer_config)
+            optimizer = AdamWithLossScale(module.parameters(), **self.optimizer_config)
         else:
             raise NotImplementedError(
                 f"Optimizer {self.optimizer_name} not implemented for testing."

@@ -39,11 +39,6 @@ from realhf.base import (
     timeutil,
     topology,
 )
-from realhf.base.asyncio_utils import (
-    raise_asyncio_exception,
-    setup_run_until_complete,
-    teardown_run_util_complete,
-)
 from realhf.system.buffer import AsyncIOSequenceBuffer
 from realhf.system.flops_counter import FlopsCounter
 
@@ -482,7 +477,7 @@ async def model_rpc_reply_func(
         if isinstance(responses[-1], data_api.SequenceSample):
             res = data_api.SequenceSample.gather(responses)
         else:
-            res = _gather_stat(responses)
+            res = data_api.gather_stat(responses)
 
         if rpc.log_return_value:
             logger.info(f"RPC name {rpc.name} returns {res}")
@@ -491,7 +486,9 @@ async def model_rpc_reply_func(
                 wandb.log(res, step=ctrl.step_info.global_step)
                 if summary_writer is not None:
                     for key, val in res.items():
-                        summary_writer.add_scalar(f"{key}", val, ctrl.step_info.global_step)
+                        summary_writer.add_scalar(
+                            f"{key}", val, ctrl.step_info.global_step
+                        )
 
         logger.info(
             f"Model rpc {rpc.name} finished. Run time {time.perf_counter() - tik:.4f}s."
@@ -516,25 +513,6 @@ async def model_rpc_reply_func(
         # and parameter synchronization.
         # Wait them after the main request to log the oorrect MFC time.
         await stream.gather_async(other_req_ids)
-
-
-def _gather_stat(src: List[Dict]) -> Dict:
-    cnt, stats = {}, {}
-    for reply in src:
-        for k, v in reply.items():
-            cnt[k] = cnt.get(k, 0) + 1
-            stats[k] = stats.get(k, 0) + v
-    res = {k: v / cnt for k, v, cnt in zip(stats.keys(), stats.values(), cnt.values())}
-    for k, c in cnt.items():
-        if c != len(src):
-            logger.warning(f"Gathered `{k}` is not present in every returned stats.")
-    for k, v in res.items():
-        if any(abs(v - x.get(k, None)) > 1e-4 for x in src):
-            logger.warning(
-                f"Gathered `{k}` is not all-reduced "
-                f"before returning: ({[x.get(k, None) for x in src]}, {v})."
-            )
-    return res
 
 
 class MasterWorker(worker_base.Worker):
@@ -952,6 +930,9 @@ class MasterWorker(worker_base.Worker):
             )
             coroutine_tasks += [request_task, reply_task]
 
+        # Import here to avoid the conflict with nvloop.
+        from realhf.base.asyncio_utils import setup_run_until_complete
+
         # Set up a run context of EventLoop.run_util_complete, baiscally copy-paste from cpython.
         # With this context, we can call the non-block EventLoop._run_once (similar to worker._poll).
         self.__asyncio_tasks: List[asyncio.Task] = coroutine_tasks
@@ -993,6 +974,9 @@ class MasterWorker(worker_base.Worker):
         )
 
     def _poll(self):
+        # Import here to avoid the conflict with nvloop.
+        from realhf.base.asyncio_utils import raise_asyncio_exception
+
         is_new_epoch = False
         first_poll = not self.__initialized
 
@@ -1276,6 +1260,9 @@ class MasterWorker(worker_base.Worker):
         self.__rpc_ctrl.ids_to_clear.clear()
 
     def experiment_complete_exit(self):
+        # Import here to avoid the conflict with nvloop.
+        from realhf.base.asyncio_utils import teardown_run_util_complete
+
         self.__rpc_ctrl.stop.set()
         for task in self.__asyncio_tasks:
             task.cancel()

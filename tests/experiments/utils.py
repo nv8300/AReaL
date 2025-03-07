@@ -44,13 +44,22 @@ def run_model_worker(cfg, mw, barrier):
             initd = True
 
 
-def run_test_exp(exp_cfg: Experiment, expr_name=None, trial_name=None):
+def run_test_exp(
+    exp_cfg: Experiment,
+    expr_name=None,
+    trial_name=None,
+    use_v2_worker: bool = False,
+):
     constants.set_force_cpu(True)
     # Register all datasets and models
     import realhf.impl.dataset  # isort: skip
     import realhf.impl.model  # isort: skip
     from realhf.api.core import system_api
-    from realhf.system.master_worker import MasterWorker
+
+    if not use_v2_worker:
+        from realhf.system.master_worker import MasterWorker
+    else:
+        from realhf.system.v2.master_worker import MasterWorker
 
     system_api.ALL_EXPERIMENT_CLASSES = {}
     register_experiment(testing._DEFAULT_EXPR_NAME, lambda: exp_cfg)

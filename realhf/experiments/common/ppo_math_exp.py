@@ -23,7 +23,11 @@ from realhf.api.quickstart.device_mesh import MFCConfig
 from realhf.api.quickstart.entrypoint import register_quickstart_exp
 from realhf.api.quickstart.model import ModelTrainEvalConfig
 from realhf.experiments.common.common import CommonExperimentConfig
-from realhf.experiments.common.utils import resolve_replica_ids, resolve_rpc_hooks
+from realhf.experiments.common.utils import (
+    asdict,
+    resolve_replica_ids,
+    resolve_rpc_hooks,
+)
 
 logger = logging.getLogger("PPO Math exp", "colored")
 
@@ -283,11 +287,7 @@ class PPOMATHConfig(CommonExperimentConfig):
                 # It is used for unifying the profiling API, which requires to
                 # pass external interface configurations in the launch command.
                 # Customized dataclass objects will not work in that case.
-                "generation_config": (
-                    OmegaConf.to_container(self.ppo.gen, resolve=True)
-                    if isinstance(self.ppo.gen, (OmegaConf, DictConfig))
-                    else dataclasses.asdict(self.ppo.gen)
-                ),
+                "generation_config": asdict(self.ppo.gen),
                 "early_stop_imp_ratio": self.ppo.early_stop_imp_ratio,
                 "adv_norm": self.ppo.adv_norm,
                 "group_size": self.group_size,

@@ -31,8 +31,8 @@ from realhf.api.core.system_api import (
     ModelWorker,
     Scheduling,
     TasksGroup,
-    WandBConfig,
     TensorBoardConfig,
+    WandBConfig,
 )
 from realhf.api.quickstart.device_mesh import (
     DeviceMesh,
@@ -56,6 +56,7 @@ from realhf.experiments.common.check import (
 )
 from realhf.experiments.common.utils import (
     AllocationMode,
+    asdict,
     get_topo,
     make_inf_backend_config,
     make_train_backend_config,
@@ -203,7 +204,9 @@ class CommonExperimentConfig(Experiment):
     partition: str = "dev"
     schedule_strategy: str = "empty_first"
     wandb: WandBConfig = dataclasses.field(default_factory=WandBConfig)
-    tensorboard: TensorBoardConfig = dataclasses.field(default_factory=TensorBoardConfig)
+    tensorboard: TensorBoardConfig = dataclasses.field(
+        default_factory=TensorBoardConfig
+    )
     image_name: Optional[str] = None
     recover_mode: str = "disabled"
     recover_retries: int = 1
@@ -561,9 +564,7 @@ class CommonExperimentConfig(Experiment):
                 and self.gen_device_mesh.mapping[i, j]
             ):
                 gen_rpc_alloc = next(
-                    alloc
-                    for alloc in rpc_allocs
-                    if alloc.rpc.interface_type == ModelInterfaceType.GENERATE
+                    alloc for alloc in rpc_allocs if alloc.rpc.is_generate()
                 )
                 model_name = gen_rpc_alloc.rpc.model_name
                 topo = get_topo(
@@ -620,6 +621,10 @@ class CommonExperimentConfig(Experiment):
                 model_rpc_allocs,
             ) in model_name_to_rpc_allocs.items():
                 rpcs = [rpc_alloc.rpc for rpc_alloc in model_rpc_allocs]
+                if self._allocation_mode.is_decoupled() and all(
+                    rpc.is_generate() for rpc in rpcs
+                ):
+                    continue
                 rpc_alloc = model_rpc_allocs[0]
                 model_cfg = self.models[model_name.role]
                 model = get_real_model_config(
@@ -677,9 +682,7 @@ class CommonExperimentConfig(Experiment):
                     rpc.is_generate() for rpc in rpcs
                 ):
                     assert len(rpcs) == 1 and rpcs[0].is_generate(), rpcs
-                    vllm_dict_args: Dict[str, Any] = OmegaConf.to_container(
-                        model_cfg.vllm, resolve=True
-                    )
+                    vllm_dict_args: Dict[str, Any] = asdict(model_cfg.vllm)
                     backend = ModelBackendAbstraction(
                         "vllm",
                         args=dict(
@@ -689,6 +692,17 @@ class CommonExperimentConfig(Experiment):
                     )
                 else:
                     backend = make_inf_backend_config(model_cfg, rpc_alloc.parallel)
+                if any(rpc.is_generate() for rpc in rpcs) and backend.type_ not in [
+                    "vllm",
+                    "sglang",
+                ]:
+                    print(rpcs, model_name, backend.type_)
+                    raise ValueError(
+                        "vLLM or SGLang is not enabled for generation. "
+                        "This behavior has been deprecated. "
+                        "Please set model.vllm.hybrid_train=True "
+                        "or model.sglang.hybrid_train=True."
+                    )
 
                 check_valid_vllm(model_name.role, model_cfg.vllm, rpc_allocs)
                 if mapping[i, j]:

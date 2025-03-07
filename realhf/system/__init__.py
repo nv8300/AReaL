@@ -15,6 +15,7 @@ logger = logging.getLogger("system")
 # NOTE: Workers are configured in the following order.
 # Take special care when adding a new worker type.
 WORKER_TYPES = ["model_worker", "master_worker"]
+USE_V2_WORKER = os.getenv("REAL_USE_V2_WORKER", "0") == "1"
 
 
 def load_worker(worker_type: str) -> Type:
@@ -25,6 +26,8 @@ def load_worker(worker_type: str) -> Type:
 
 
 def worker_type_to_module(worker_type: str):
+    if worker_type == "master_worker" and USE_V2_WORKER:
+        return "realhf.system.v2." + worker_type
     return "realhf.system." + worker_type
 
 

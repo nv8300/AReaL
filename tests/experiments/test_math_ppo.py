@@ -47,6 +47,8 @@ def math_dataset(request, save_path):
     return dataset
 
 
+# NOTE: we can't test v1 and v2 at the same time.
+@pytest.mark.parametrize("use_v2_worker", [True])
 @pytest.mark.parametrize(
     "dp,pp,mp",
     [
@@ -66,6 +68,7 @@ def test_ppo_symm(
     dp,
     pp,
     mp,
+    use_v2_worker,
 ):
     # Setup experiment env. Should be done before any other operations.
     log_root = tmp_path_factory.mktemp("ppo")
@@ -117,8 +120,10 @@ def test_ppo_symm(
             ),
         ),
     )
+    exp_cfg.actor.vllm.hybrid_train = True
+    exp_cfg.actor.vllm.enforce_eager = True
 
-    run_test_exp(exp_cfg)
+    run_test_exp(exp_cfg, use_v2_worker=use_v2_worker)
 
 
 # The global resharding strategy, where all MFCs
@@ -238,6 +243,8 @@ def test_ppo_global_reshard(
             ),
         ),
     )
+    exp_cfg.actor.vllm.hybrid_train = True
+    exp_cfg.actor.vllm.enforce_eager = True
 
     run_test_exp(exp_cfg)
 
@@ -351,6 +358,8 @@ def test_ppo_param_realloc_sub_device_mesh(
             ),
         ),
     )
+    exp_cfg.actor.vllm.hybrid_train = True
+    exp_cfg.actor.vllm.enforce_eager = True
 
     run_test_exp(exp_cfg)
 
@@ -470,6 +479,8 @@ def test_ppo_save(
             ),
         ),
     )
+    exp_cfg.actor.vllm.hybrid_train = True
+    exp_cfg.actor.vllm.enforce_eager = True
 
     run_test_exp(exp_cfg)
 

@@ -147,6 +147,7 @@ class AsyncIOSequenceBuffer:
         rpcs: List[dfg.MFCDef],
         max_size: int,
     ):
+        self.rpcs = rpcs
         self._lock = asyncio.Condition(asyncio.Lock())
 
         # Buffer indicators, should be locked by self._lock.
@@ -269,6 +270,62 @@ class AsyncIOSequenceBuffer:
             )
         return indices
 
+    async def put_batch(self, samples: List[SequenceSample]):
+        n = len(samples)
+
+        if n == 0:
+            return np.array([], dtype=np.int64)
+
+        async with self._lock:
+            self._assert_valid_indicator()
+
+            indices = np.where(self._is_empty)[0][:n]
+
+            if len(indices) < n:
+                raise BufferFull(
+                    "You are probably using a large dataset. "
+                    "The default buffer size 1M is not large enough. "
+                    "Please set a larger buffer size by setting "
+                    "the environment variable, e.g., REAL_MASTER_BUFFER_SIZE=3000000."
+                )
+            self._is_empty[indices] = False
+            self._is_being_put[indices] = True
+
+        self.__buffer.put_batch(indices, samples)
+
+        # Set a slight difference in birth time to let the order
+        # be deterministic.
+        self._birth_time[indices] = time.monotonic_ns() + np.arange(
+            len(indices), dtype=np.int64
+        )
+
+        async with self._lock:
+            self.__buffer._update_has_keys(indices)
+
+            has_keys = self.__buffer._get_has_keys(indices)  # [bs, #keys]
+            rpc_key_mask = self._rpc_key_mask  # [#keys, #rpcs]
+            self._ready_for_rpcs[indices] = (
+                has_keys[:, :, None] >= rpc_key_mask[None, :, :]
+            ).all(axis=1)
+
+            self._is_being_put[indices] = False
+            self._is_idle[indices] = True
+
+            self._buf_size += len(samples)
+            if self._buf_size >= 0.95 * self.__max_size:
+                logger.warning(
+                    f"Buffer is 95% full. The current buffer size is {self._buf_size} "
+                    f"while the maximum size is {self.__max_size}. "
+                    f"If your dataset has more than 1M sequences, consider enlarge "
+                    f"the default batch size in the master worker."
+                )
+
+            can_do_rpcs = {rpc.name: self._can_do_rpc(rpc) for rpc in self.rpcs}
+            logger.info(f"After putting batch, can do RPCs? {can_do_rpcs}.")
+
+            self._lock.notify(len(self._rpc_names))
+        return indices
+
     async def amend_batch(self, indices: List[int], samples: List[SequenceSample]):
         async with self._lock:
             await self._lock.wait_for(
@@ -298,6 +355,17 @@ class AsyncIOSequenceBuffer:
             if self._is_idle[indices].any():
                 self._lock.notify(len(self._rpc_names))
 
+    def _can_do_rpc(self, rpc: dfg.MFCDef) -> bool:
+        rpc_idx = self._rpc_names.index(rpc.name)
+        ready_indices = np.nonzero(
+            (self._is_idle | self._is_being_read)
+            & self._ready_for_rpcs[:, rpc_idx]
+            & ~self._completed_rpc[:, rpc_idx]
+        )[0]
+        if len(ready_indices) < rpc.n_seqs:
+            return False
+        return True
+
     async def get_batch_for_rpc(
         self, rpc: dfg.MFCDef
     ) -> Tuple[List[int], SequenceSample]:
@@ -306,20 +374,10 @@ class AsyncIOSequenceBuffer:
         )
         rpc_idx = self._rpc_names.index(rpc.name)
 
-        def _can_do_rpc() -> bool:
-            ready_indices = np.nonzero(
-                (self._is_idle | self._is_being_read)
-                & self._ready_for_rpcs[:, rpc_idx]
-                & ~self._completed_rpc[:, rpc_idx]
-            )[0]
-            if len(ready_indices) < rpc.n_seqs:
-                return False
-            return True
-
         async with self._lock:
             # await self._lock.wait_for(_can_do_rpc)
 
-            while not _can_do_rpc():
+            while not self._can_do_rpc(rpc):
                 await self._lock.wait()
 
             logger.info(f"Input keys ({rpc.input_keys}) for MFC {rpc.name} are ready!")
