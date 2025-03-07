@@ -51,4 +51,6 @@ paramiko
 torch>2.0.0
 black>=25.1.0
 cookiecutter>2.1.1
+asyncio
+aiohttp
 httpx>=0.28.1

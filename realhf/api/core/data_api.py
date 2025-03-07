@@ -833,6 +833,9 @@ def make_dataset(
 def gather_stat(src: List[Dict]) -> Dict:
     cnt, stats = {}, {}
     for reply in src:
+        # FIXME: understand why the reply can be None
+        if not reply:
+            continue
         for k, v in reply.items():
             cnt[k] = cnt.get(k, 0) + 1
             stats[k] = stats.get(k, 0) + v

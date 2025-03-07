@@ -4,10 +4,10 @@ import json
 import os
 import signal
 import subprocess
+import time
+import traceback
 import uuid
 from typing import *
-
-import requests
 
 from realhf.base import logging
 from realhf.base.constants import parallelism_rank
@@ -112,10 +112,9 @@ def parse_line(prompt_str, generated, query_id):
 
 
 def parse_lines_in_parallel(
-    prompt_strs: List,
     generateds: List,
     query_ids: List,
-    max_workers: int,
+    max_workers=22,
     check_xml_format=False,
 ) -> List:
     global id2info
@@ -124,12 +123,11 @@ def parse_lines_in_parallel(
             id2info = loadJson(os.environ["REAL_MATH_METADATA_PATH"])
         except KeyError as e:
             raise KeyError("The json file REAL_MATH_METADATA_PATH is not set") from e
-    assert len(prompt_strs) == len(generateds) == len(query_ids), (
-        len(prompt_strs),
+    assert len(generateds) == len(query_ids), (
         len(generateds),
         len(query_ids),
     )
-    bs = len(prompt_strs)
+    bs = len(query_ids)
     mbs = (bs + max_workers - 1) // max_workers
 
     tmp_ids = []
@@ -183,7 +181,7 @@ def parse_lines_in_parallel(
         except ProcessLookupError:
             pass
 
-    labels = [0 for _ in prompt_strs]
+    labels = [0 for _ in query_ids]
     for i, (tmp_id, query_indices) in enumerate(zip(tmp_ids, all_query_indices)):
         try:
             with open(f"/tmp/{tmp_id}-output.jsonl", "r") as f:
@@ -214,7 +212,6 @@ if __name__ == "__main__":
 
     print(
         parse_lines_in_parallel(
-            [sample["prompt"] for _ in range(100)],
             # [sample["answer_in_box"][0] for _ in range(50)] + [sample["answer_in_box"][1] for _ in range(50)],
             [sample["answer"]] * 100,
             [sample["query_id"] for _ in range(100)],

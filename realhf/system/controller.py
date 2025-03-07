@@ -619,6 +619,7 @@ class RayController:
             REAL_RECOVER_RUN=os.environ.get("REAL_RECOVER_RUN", ""),
             REAL_SAVE_RECOVER_STATES=os.environ.get("REAL_SAVE_RECOVER_STATES", ""),
             REAL_MATH_METADATA_PATH=os.environ.get("REAL_MATH_METADATA_PATH", ""),
+            REAL_CODE_METADATA_PATH=os.getenv("REAL_CODE_METADATA_PATH", ""),
             REAL_USE_V2_WORKER=os.getenv("REAL_USE_V2_WORKER", "0"),
         )
         runtime_env = {

@@ -37,7 +37,7 @@ def get_score(prompt_ids, generated, query_ids, tokenizer):
         generated, clean_up_tokenization_spaces=False, skip_special_tokens=True
     )
     query_id_strs = [query_id.split("@")[0] for query_id in query_ids]
-    return parse_lines_in_parallel(prompt_strs, seq_strs, query_id_strs, max_workers=22)
+    return parse_lines_in_parallel(seq_strs, query_id_strs)
 
 
 def topk(scores, gen_lengths, k) -> list:
