@@ -2,6 +2,8 @@
 
 import asyncio
 import dataclasses
+import itertools
+import json
 import os
 import time
 import uuid
@@ -9,6 +11,7 @@ from collections import defaultdict
 from typing import Dict, Hashable, List, Set, Tuple
 
 import wandb
+from tensorboardX import SummaryWriter
 
 import realhf.api.core.config as config_api
 import realhf.api.core.data_api as data_api
@@ -16,11 +19,13 @@ import realhf.api.core.dfg as dfg
 import realhf.api.core.system_api as config_pkg
 import realhf.base.recover as recover
 import realhf.system.request_reply_stream as request_reply_stream
+from realhf import ModelShardID
 from realhf.api.core.config import ModelName
 from realhf.api.core.model_api import ReaLModelConfig
 from realhf.base import constants, logging, topology
 from realhf.system.buffer import AsyncIOSequenceBuffer
 from realhf.system.flops_counter import FlopsCounter
+from realhf.system.redistributor import RedistribPlanner, RedistribStep
 
 logger = logging.getLogger(__name__, "system")
 blogger = logging.getLogger("benchmark")
@@ -38,10 +43,6 @@ class RPCCorountineControl:
     ids_to_clear: Set[Hashable] = dataclasses.field(default_factory=set)
     flops_counter: FlopsCounter = dataclasses.field(default_factory=FlopsCounter)
 
-    data_owner: Dict[Tuple[int, str], Tuple[ModelName, int]] = dataclasses.field(
-        default_factory=dict
-    )
-
     should_save: bool = False
     should_eval: bool = False
     should_ckpt: bool = False
@@ -52,7 +53,7 @@ class RPCCorountineControl:
     hash_vals_to_ignore_in_recover: List[int] = dataclasses.field(default_factory=list)
 
 
-class FunctionCall:
+class ModelFunctionCall:
     def __init__(
         self,
         rpc: dfg.MFCDef,
@@ -63,15 +64,23 @@ class FunctionCall:
         model_configs: Dict[str, None | ReaLModelConfig],
         ctrl: RPCCorountineControl,
         buffer: AsyncIOSequenceBuffer,
+        redistrib_planner: RedistribPlanner,
+        summary_writer: SummaryWriter | None,
     ):
 
         self.rpc = rpc
         self.src_rpc = src_rpc
         self.stream = stream
 
+        self.n_model_workers = len(set(msid2mwid.values()))
+
         self.msid2mwid = msid2mwid
         self.model_topos = model_topos
         self.model_configs = model_configs
+
+        self.mwid2msids = defaultdict(list)
+        for msid, mwid in msid2mwid.items():
+            self.mwid2msids[mwid].append(msid)
 
         self.model_save_root = os.path.join(
             constants.MODEL_SAVE_ROOT,
@@ -80,8 +89,10 @@ class FunctionCall:
         )
 
         self.rpc_ctrl = ctrl
-
         self.buffer = buffer
+        self.redistrib_planner = redistrib_planner
+
+        self.summary_writer = summary_writer
 
     @property
     def dp_size(self):
@@ -172,10 +183,8 @@ class FunctionCall:
 
     def request(
         self,
-        producer_names: Dict[str, str],
-        producer_name2producer_handlers: Dict[str, List[config_pkg.ModelShardID]],
-        producer_mappings: Dict[str, Dict[str, List[int]]],
-        target_mapping: Dict[str, List[int]],
+        data_transfer_plan: List[RedistribStep],
+        partitioned_ids: List[Hashable],
         meta_sample: data_api.SequenceSample,
         handlers: List[config_pkg.ModelShardID],
     ) -> Tuple[List[uuid.UUID], List[uuid.UUID]]:
@@ -184,14 +193,12 @@ class FunctionCall:
         ctrl = self.rpc_ctrl
 
         dt_data = {
-            "keys": rpc.input_keys,
             "target": rpc.model_name,
-            "producer_names": producer_names,
-            "producer_mappings": producer_mappings,
-            "target_mapping": target_mapping,
+            "plan": [json.dumps(dataclasses.asdict(x)) for x in data_transfer_plan],
+            "partitioned_ids": partitioned_ids,
             "handle_name": rpc.interface_type.value,
-            "rpc_name": rpc.name,
             "meta_sample": meta_sample,
+            "partitioned_ids": partitioned_ids,
         }
 
         payloads = {
@@ -230,16 +237,27 @@ class FunctionCall:
         mwids = [self.msid2mwid[h] for h in handlers]
         assert len(mwids) == len(set(mwids))
 
-        for producer_name in producer_names.values():
-            for h in producer_name2producer_handlers[producer_name]:
-                if self.msid2mwid[h] not in mwids:
-                    payloads[h] = request_reply_stream.Payload(
-                        handler=h,
-                        handle_name="empty",
-                        pre_hooks=["data_transfer"],
-                        pre_hook_data=[dt_data],
-                    )
-                    mwids.append(self.msid2mwid[h])
+        for step in data_transfer_plan:
+            if step.root not in mwids:
+                handler = self.mwid2msids[step.root][0]
+                payloads[handler] = request_reply_stream.Payload(
+                    handler=handler,
+                    handle_name="empty",
+                    pre_hooks=["data_transfer"],
+                    pre_hook_data=[dt_data],
+                )
+                mwids.append(step.root)
+            if step.comm_type == "gather":
+                for src in step.srcs:
+                    if src not in mwids:
+                        handler = self.mwid2msids[src][0]
+                        payloads[handler] = request_reply_stream.Payload(
+                            handler=handler,
+                            handle_name="empty",
+                            pre_hooks=["data_transfer"],
+                            pre_hook_data=[dt_data],
+                        )
+                        mwids.append(src)
 
         payloads, mwids = self.attach_payloads_with_hooks(
             payloads,
@@ -266,9 +284,10 @@ class FunctionCall:
         # Dispatch data to different data parallel ranks.
         if self.rpc.is_generate():
             # The workload of generation is decided by batch size, instead of the generated length.
+            lens = [1 for _ in range(sample.bs)]
             samples, forward_indices, _ = sample.split_with_lengths(
                 mb_spec=data_api.MicroBatchSpec(n_mbs=self.dp_size),
-                lens=[1 for _ in range(sample.bs)],
+                lens=lens,
             )
         else:
             samples, forward_indices, _ = sample.split(
@@ -297,26 +316,6 @@ class FunctionCall:
             for j in range(topo.world_size())
         ]
 
-        producer_names = {}  # data key -> model name
-        for k in rpc.input_keys:
-            if k in rpc.data_producers:
-                producer_names[k] = rpc.data_producers[k]
-            else:
-                producer_names[k] = self.src_rpc.model_name
-        keys_to_send = defaultdict(list)  # model name -> List[keys] to send
-        for k in producer_names:
-            keys_to_send[producer_names[k]].append(k)
-
-        # convert producer model name to ModelShardID
-        producer_name2producer_handlers = {}
-        for producer_name in keys_to_send:
-            producer_name2producer_handlers[producer_name] = [
-                config_pkg.ModelShardID.from_parallelism_rank(
-                    producer_name, self.model_topos[producer_name], j
-                )
-                for j in range(self.model_topos[producer_name].world_size())
-            ]
-
         dp_head_indices = [
             topo.get_rank(data=i, pipe=topo.get_dim("pipe") - 1, model=0)
             for i in range(self.dp_size)
@@ -330,40 +329,72 @@ class FunctionCall:
         buf_indices, sample, partitions = self.data_parallel_dispatch(
             buf_indices, sample
         )
-        target_mapping = {i: list(range(v[0], v[1])) for i, v in enumerate(partitions)}
 
-        # Set data owner of produced data by this RPC, such that downstream RPCs can know
-        # where to fetch these data.
-        for dp_idx, (st, ed) in enumerate(partitions):
-            for i in range(st, ed):
-                for k in rpc.output_keys:
-                    self.rpc_ctrl.data_owner[sample.ids[i], k] = (
-                        rpc.model_name,
-                        dp_idx,
+        # Build data destinations: GPU id -> List[data ids]
+        partitioned_ids = []
+        dests = {}
+        for dp_rank, (st, ed) in enumerate(partitions):
+            ranks = topo.filter_match(data=dp_rank)
+            for rank in ranks:
+                h = config_pkg.ModelShardID.from_parallelism_rank(
+                    model_name=rpc.model_name, topo=topo, parallelism_rank=rank
+                )
+                gpu_id = self.msid2mwid[h]
+                assert gpu_id not in dests
+                dests[gpu_id] = sample.ids[st:ed]
+            partitioned_ids.append(sample.ids[st:ed])
+        for i in range(self.n_model_workers):
+            if i not in dests:
+                dests[i] = []
+
+        # NOTE: The data loaded from the dataset may be unevenly distributed across DP ranks.
+        # Only bcast works in this case.
+        if rpc.is_src:
+            pattern = "bcast"
+        else:
+            pattern = "gather-scatter"
+        data_transfer_plan = self.redistrib_planner.derive_plan(
+            dests,
+            keys=rpc.input_keys,
+            pattern=pattern,
+        )
+        blogger.info(f"Data tranfer plan for `{rpc.name}`: {data_transfer_plan}.")
+
+        # Update storage tracker for transferred data.
+        if rpc.is_src:
+            # NOTE: since the data we loaded may be unevenly distributed across DP ranks,
+            # we should change the owner of the data to the src RPC.
+            for i in range(topo.world_size()):
+                h = ModelShardID.from_parallelism_rank(
+                    model_name=rpc.model_name, topo=topo, parallelism_rank=i
+                )
+                is_dp_head = h.mp_rank == 0 and h.pp_rank == topo.get_dim("pipe") - 1
+                gpu_id = self.msid2mwid[h]
+                for key in rpc.input_keys:
+                    self.redistrib_planner.storage_tracker.add_data(
+                        gpu_id, partitioned_ids[h.dp_rank], key=key, is_owner=is_dp_head
                     )
-
-        # Get the data owner of this RPC's input data.
-        # We use it to determine the source of data transfer.
-        producer_mappings = {}
-        for k in rpc.input_keys:
-            names, dp_indices = [], []
-            for sample_id in sample.ids:
-                owner_name, dp_idx = self.rpc_ctrl.data_owner[(sample_id, k)]
-                names.append(owner_name)
-                dp_indices.append(dp_idx)
-            assert len(set(names)) == 1
-            producer_mapping = defaultdict(list)
-            for i, dp_idx in enumerate(dp_indices):
-                producer_mapping[dp_idx].append(i)
-            producer_mapping = {k: sorted(v) for k, v in producer_mapping.items()}
-            producer_mappings[names[0], k] = producer_mapping
+        else:
+            for step in data_transfer_plan:
+                if step.comm_type == "scatter":
+                    for gpu_id, ids in zip(step.dsts, step.ids):
+                        for key in step.keys:
+                            self.redistrib_planner.storage_tracker.add_data(
+                                gpu_id, ids, key=key, is_owner=False
+                            )
+                elif step.comm_type == "gather":
+                    for key in step.keys:
+                        self.redistrib_planner.storage_tracker.add_data(
+                            step.root,
+                            list(itertools.chain.from_iterable(step.ids)),
+                            key=key,
+                            is_owner=False,
+                        )
 
         # send partitioned data to model workers
         req_ids, other_req_ids = self.request(
-            producer_names=producer_names,
-            producer_name2producer_handlers=producer_name2producer_handlers,
-            producer_mappings=producer_mappings,
-            target_mapping=target_mapping,
+            data_transfer_plan=data_transfer_plan,
+            partitioned_ids=partitioned_ids,
             meta_sample=sample,
             handlers=handlers,
         )
@@ -384,6 +415,22 @@ class FunctionCall:
         # model function calls. The data shoulbe be amended into buffer.
         # Otherwise, it's the train statistics and should be reduced and logged.
         if isinstance(responses[-1], data_api.SequenceSample):
+            # Update storage tracker for generated data.
+            for dp_rank, x in enumerate(responses):
+                pp_size = topo.get_dim("pipe")
+                ranks = topo.filter_match(data=dp_rank, pipe=pp_size - 1, model=0)
+                for rank in ranks:
+                    h = config_pkg.ModelShardID.from_parallelism_rank(
+                        model_name=rpc.model_name, topo=topo, parallelism_rank=rank
+                    )
+                    gpu_id = self.msid2mwid[h]
+                    for k in rpc.output_keys:
+                        self.redistrib_planner.storage_tracker.add_data(
+                            gpu_id,
+                            x.ids,
+                            key=k,
+                            is_owner=True,
+                        )
             res = data_api.SequenceSample.gather(responses)
         else:
             res = data_api.gather_stat(responses)
@@ -393,6 +440,11 @@ class FunctionCall:
 
             if isinstance(res, Dict):
                 wandb.log(res, step=ctrl.step_info.global_step)
+                if self.summary_writer is not None:
+                    for key, val in res.items():
+                        self.summary_writer.add_scalar(
+                            f"{key}", val, ctrl.step_info.global_step
+                        )
 
         logger.info(
             f"Model rpc {rpc.name} finished. "
@@ -418,7 +470,6 @@ class FunctionCall:
     async def run(self):
         rpc = self.rpc
         topo = self.model_topos[rpc.model_name]
-        ctrl = self.rpc_ctrl
 
         logger.info(
             f"Running Model RPC, interface_type=#{rpc.interface_type}# "

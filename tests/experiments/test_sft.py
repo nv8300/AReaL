@@ -35,11 +35,17 @@ def model_class(request):
     ],
 )
 def test_sft_xl(tmp_path_factory, tokenizer, save_path, cpu_hf_model, dp, pp, tp):
-    test_sft(tmp_path_factory, tokenizer, save_path, cpu_hf_model, dp, pp, tp)
+    test_sft(
+        tmp_path_factory,
+        tokenizer,
+        save_path,
+        cpu_hf_model,
+        dp,
+        pp,
+        tp,
+    )
 
 
-# NOTE: we can't test v1 and v2 at the same time.
-@pytest.mark.parametrize("use_v2_worker", [True])
 @pytest.mark.parametrize(
     "dp,pp,tp",
     [
@@ -49,9 +55,7 @@ def test_sft_xl(tmp_path_factory, tokenizer, save_path, cpu_hf_model, dp, pp, tp
         (1, 1, 2),
     ],
 )
-def test_sft(
-    tmp_path_factory, tokenizer, save_path, cpu_hf_model, dp, pp, tp, use_v2_worker
-):
+def test_sft(tmp_path_factory, tokenizer, save_path, cpu_hf_model, dp, pp, tp):
 
     # Setup experiment env. Should be done before any other operations.
     log_root = tmp_path_factory.mktemp("sft")
@@ -83,4 +87,4 @@ def test_sft(
         ),
     )
 
-    run_test_exp(exp_cfg, use_v2_worker=use_v2_worker)
+    run_test_exp(exp_cfg)

@@ -17,32 +17,6 @@ from realhf.api.core.data_api import SequenceSample
 logger = logging.getLogger("buffer")
 
 
-def _extract_intervals(arr):
-    if len(arr) == 0:
-        return []
-
-    # Initialize the list to hold the intervals
-    intervals = []
-
-    # Start of the first interval
-    start = arr[0]
-
-    for i in range(1, len(arr)):
-        # Check if the current element is not contiguous with the previous one
-        if arr[i] != arr[i - 1] + 1:
-            # End of the current interval
-            end = arr[i - 1]
-            # Add the interval as a tuple
-            intervals.append((start, end + 1))
-            # Start a new interval
-            start = arr[i]
-
-    # Add the last interval
-    intervals.append((start, arr[-1] + 1))
-
-    return intervals
-
-
 class BufferFull(Exception):
     pass
 

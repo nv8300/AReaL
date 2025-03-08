@@ -19,17 +19,19 @@ def loadJson(dataDir):
     return samples
 
 
-id2info = loadJson(
-    os.getenv(
-        "REAL_MATH_MEATADATA_PATH",
-        "/storage/datasets/id2info.json",
-    )
-)
+id2info = None
 
 
 def math_verify(generateds: List, query_ids: List, batch_size=20, timeout=60) -> List:
     start_time = time.time()
     global id2info
+    if id2info is None:
+        id2info = loadJson(
+            os.getenv(
+                "REAL_MATH_MEATADATA_PATH",
+                "/storage/datasets/id2info.json",
+            )
+        )
     assert len(generateds) == len(query_ids), (
         len(generateds),
         len(query_ids),

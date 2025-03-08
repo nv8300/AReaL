@@ -229,6 +229,8 @@ def resolve_rpc_hooks(
 class AllocationType(enum.Enum):
     DECOUPLED = 1
     GLOBAL_HYBRID = 2
+    MANUAL = 3
+    SEARCH = 4
 
 
 @dataclasses.dataclass
@@ -244,6 +246,10 @@ class AllocationMode:
 
     @classmethod
     def from_str(cls, allocation_mode: str):
+        if allocation_mode == "manual":
+            return cls(AllocationType.MANUAL, None)
+        if allocation_mode == "search":
+            return cls(AllocationType.SEARCH, None)
         alloc_3d = AllocationMode.extract_3d_alloc(allocation_mode)
         alloc_hybrid = AllocationMode.extract_key_value_alloc(allocation_mode)
         alloc_decoupled = AllocationMode.extract_decoupled_alloc(allocation_mode)

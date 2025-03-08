@@ -39,7 +39,6 @@ RUN cd /vllm && \
     python3 use_existing_torch.py && \
     pip3 install -r requirements-build.txt && \
     MAX_JOBS=64 pip3 install -e . --no-build-isolation
-RUN yes | pip3 uninstall uvloop
 RUN pip3 install opencv-python-headless==4.5.4.58
 
 RUN apt-get update && apt-get install -y python3.10-venv

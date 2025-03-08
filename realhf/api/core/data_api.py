@@ -396,6 +396,7 @@ class SequenceSample:
         group_indices = datapack.ffd_allocate(
             lens, mb_spec.max_tokens_per_mb, min_groups=mb_spec.n_mbs
         )
+        group_indices = sorted([sorted(g) for g in group_indices])
 
         forward_indices = datapack.flat2d(group_indices)
         sample = SequenceSample.reorder(self, forward_indices)

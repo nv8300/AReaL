@@ -63,14 +63,7 @@ def load_problems_with_testcase_batch(path, debug=False, test_case_batch_size=No
     return problem_map
 
 
-global_problems = load_problems_with_testcase_batch(
-    os.getenv(
-        "REAL_CODE_METADATA_PATH",
-        "/storage/datasets/codeparrot-apps-test.jsonl",
-    ),
-    debug=True,
-    test_case_batch_size=20,
-)
+global_problems = None
 
 
 def code_verify(generateds, query_ids, debug=False, timeout=20, timeout_for_testcase=6):
@@ -81,6 +74,15 @@ def code_verify(generateds, query_ids, debug=False, timeout=20, timeout_for_test
     payload_list = []
 
     global global_problems
+    if global_problems is None:
+        global_problems = load_problems_with_testcase_batch(
+            os.getenv(
+                "REAL_CODE_METADATA_PATH",
+                "/storage/datasets/codeparrot-apps-test.jsonl",
+            ),
+            debug=True,
+            test_case_batch_size=20,
+        )
     for idx, query_id in enumerate(query_ids):
         if query_id not in global_problems:
             payload_list.append(None)

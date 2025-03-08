@@ -138,6 +138,9 @@ class NameResolvingRequestClient:
             f"subscribers: {name_resolve.get_subtree(names.request_reply_stream(experiment_name, trial_name, PUBSUB_BARRIER_NAME))}."
         )
 
+    def route_to(self, handler) -> int:
+        return self._handler_routing[handler]
+
     def close(self):
         self.recv_socket.close()
         for send_socket in self.send_sockets:

@@ -30,7 +30,6 @@ import torch.utils.data
 
 import realhf.api.core.dfg as dfg
 import realhf.api.core.system_api as system_api
-import realhf.impl.model.comm.data_transfer as data_transfer_comm
 import realhf.impl.model.comm.global_comm as global_comm
 import realhf.impl.model.comm.param_realloc as param_realloc_comm
 from realhf.api.core.config import ModelName
@@ -49,11 +48,12 @@ from realhf.base.monitor import (
     cuda_tmark,
     cuda_tmarked,
     dump_tmark_db,
-    gpu_utilization_monitor,
 )
 from realhf.impl.model.nn.real_llm_api import ReaLModel
 from realhf.impl.model.utils import cuda_graph
 from realhf.system import request_reply_stream, worker_base
+from realhf.system.data_manager import DataManager
+from realhf.system.redistributor import RedistribStep
 
 # NOTE: Register all implemented datasets and models.
 import realhf.api.core.data_api as data_api  # isort:skip
@@ -257,11 +257,12 @@ class ModelWorker(worker_base.Worker):
             msid2mwid=self.config.msid2mwid,
         )
 
-        self.__data_transfer_info = data_transfer_comm.setup_data_transfer(
+        self.data_manager = DataManager(
             model_topos=self.config.model_topos,
             msid2mwid=self.config.msid2mwid,
             data_transfer_pairs=self.config.data_transfer_pairs,
         )
+        self.data_manager.setup_process_groups()
 
         self.__param_realloc_info = param_realloc_comm.setup_param_realloc(
             model_topos=self.config.model_topos,
@@ -466,17 +467,6 @@ class ModelWorker(worker_base.Worker):
         self.__reply_queue = queue.Queue(maxsize=8)
         self.__request_sample_size = dict()
 
-        # Storing data loaded from the dataset and outputs of the
-        # model function call.
-        self.__data_storage: Dict[int, data_api.SequenceSample] = {}
-
-        self.__data_sent_worker_indices: Dict[int, Dict[str, Set]] = (
-            collections.defaultdict(lambda: collections.defaultdict(set))
-        )
-        self.__data_received_worker_indices: Dict[int, Dict[str, Set]] = (
-            collections.defaultdict(lambda: collections.defaultdict(set))
-        )
-
         self.__compute_input_queues = {
             model_name: dict(
                 train_step=queue.Queue(4),
@@ -629,10 +619,10 @@ class ModelWorker(worker_base.Worker):
             # Defer data that has not been used in the previous epoch.
             data_loaded = []
             for x in cur_sample.unpack():
-                if x.ids[0] in self.__data_storage:
+                if self.data_manager.has_data(x.ids[0]):
                     continue
                 data_loaded.append(x)
-                self.__data_storage[x.ids[0]] = x
+                self.data_manager.store(x)
             assert len(set([x.ids[0] for x in data_loaded])) == len(data_loaded)
 
             if len(data_loaded) > 0:
@@ -653,13 +643,7 @@ class ModelWorker(worker_base.Worker):
         elif request.handle_name == "clear_data_cache":
             with cuda_tmarked("clear_data_cache", CUDATimeMarkType.misc):
                 ids = request.data
-                for _id in ids:
-                    if _id in self.__data_storage:
-                        del self.__data_storage[_id]
-                    if _id in self.__data_sent_worker_indices:
-                        del self.__data_sent_worker_indices[_id]
-                    if _id in self.__data_received_worker_indices:
-                        del self.__data_received_worker_indices[_id]
+                self.data_manager.remove(ids)
                 gc.collect()
                 if (
                     self.config.cuda_cache_cleanliness
@@ -673,7 +657,7 @@ class ModelWorker(worker_base.Worker):
                     )
             logger.info(
                 "Get clear_data_cache, dump cuda tmark. "
-                f"Remaining data in local storage: {len(self.__data_storage)}. "
+                f"Remaining data in local storage: {self.data_manager.storage_size()}. "
             )
             dump_tmark_db(self.__worker_index)
             res = request_reply_stream.NoResponse()
@@ -940,7 +924,7 @@ class ModelWorker(worker_base.Worker):
             for x in res.unpack():
                 # The input data must exist in the storage, otherwise
                 # the model function call will not run.
-                self.__data_storage[x.ids[0]].update_(x)
+                self.data_manager.update(x)
 
         # Only return meta data back to the master worker.
         if isinstance(res, data_api.SequenceSample):
@@ -967,32 +951,18 @@ class ModelWorker(worker_base.Worker):
     @cuda_tmark("data_transfer", CUDATimeMarkType.comm)
     def __data_transfer_among_workers(self, hook_data: Dict[str, Any]):
         meta_sample = hook_data["meta_sample"]
-        comm_plan = data_transfer_comm.derive_data_transfer_plan(
-            keys=hook_data["keys"],
-            global_ids=meta_sample.ids,
-            consumer_name=hook_data["target"],
-            consumer_mapping=hook_data["target_mapping"],
-            producer_names=hook_data["producer_names"],
-            producer_mappings=hook_data["producer_mappings"],
-            data_transfer_info=self.__data_transfer_info,
-        )
 
-        data_transfer_comm.run_data_transfer(
-            comm_plan=comm_plan,
-            meta_samples={x.ids[0]: x for x in meta_sample.unpack()},
-            storage=self.__data_storage,
-            sent_worker_idx_table=self.__data_sent_worker_indices,
-            received_worker_idx_table=self.__data_received_worker_indices,
-        )
+        plan = [RedistribStep(**json.loads(x)) for x in hook_data["plan"]]
+        self.data_manager.redistribute(meta_sample, plan=plan)
 
         if hook_data["target"] in self.__models:
             with constants.model_scope(hook_data["target"]):
-                local_ids = [
-                    meta_sample.ids[i]
-                    for i in hook_data["target_mapping"][self._dp_rank]
-                ]
+                local_ids = hook_data["partitioned_ids"][self._dp_rank]
             r = data_api.SequenceSample.gather(
-                [self.__data_storage[_id] for _id in local_ids],
+                [
+                    self.data_manager.get(_id).to_device(constants.current_device())
+                    for _id in local_ids
+                ],
                 keys=meta_sample.keys,
             )
             self.__compute_input_queues[hook_data["target"]][
@@ -1349,7 +1319,6 @@ class ModelWorker(worker_base.Worker):
         self.__models.clear()
         self.__backends.clear()
         self.__interfaces.clear()
-        self.__data_storage.clear()
 
         # Reset model worker states.
         self.__dist_env_resolved = False

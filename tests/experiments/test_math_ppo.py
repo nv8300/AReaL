@@ -47,13 +47,11 @@ def math_dataset(request, save_path):
     return dataset
 
 
-# NOTE: we can't test v1 and v2 at the same time.
-@pytest.mark.parametrize("use_v2_worker", [True])
 @pytest.mark.parametrize(
     "dp,pp,mp",
     [
         (1, 1, 1),
-        (2, 1, 1),
+        (2, 1, 2),
         (1, 2, 1),
         (1, 1, 2),
     ],
@@ -68,7 +66,6 @@ def test_ppo_symm(
     dp,
     pp,
     mp,
-    use_v2_worker,
 ):
     # Setup experiment env. Should be done before any other operations.
     log_root = tmp_path_factory.mktemp("ppo")
@@ -120,10 +117,8 @@ def test_ppo_symm(
             ),
         ),
     )
-    exp_cfg.actor.vllm.hybrid_train = True
-    exp_cfg.actor.vllm.enforce_eager = True
 
-    run_test_exp(exp_cfg, use_v2_worker=use_v2_worker)
+    run_test_exp(exp_cfg)
 
 
 # The global resharding strategy, where all MFCs
@@ -138,6 +133,7 @@ def test_ppo_symm(
 def test_ppo_global_reshard(
     tmp_path_factory,
     tokenizer,
+    math_dataset,
     save_path,
     cpu_hf_model,
     mconfig,
@@ -243,19 +239,17 @@ def test_ppo_global_reshard(
             ),
         ),
     )
-    exp_cfg.actor.vllm.hybrid_train = True
-    exp_cfg.actor.vllm.enforce_eager = True
-
     run_test_exp(exp_cfg)
 
 
 # Actor/critic train and ref_inf/rew_inf are on disjoint
 # device meshes and executed concurrently.
-@pytest.mark.parametrize("actor_gen", [(1, 2, 1)])
-@pytest.mark.parametrize("critic_inf", [(1, 1, 2)])
+@pytest.mark.parametrize("actor_gen", [(2, 2, 1)])
+@pytest.mark.parametrize("critic_inf", [(2, 1, 2)])
 def test_ppo_param_realloc_sub_device_mesh(
     tmp_path_factory,
     tokenizer,
+    math_dataset,
     save_path,
     cpu_hf_model,
     mconfig,
@@ -276,7 +270,7 @@ def test_ppo_param_realloc_sub_device_mesh(
         mode="local",
         allocation_mode="manual",
         n_nodes=1,
-        n_gpus_per_node=2,
+        n_gpus_per_node=8,
         actor=ModelTrainEvalConfig(
             path=str(save_path),
             init_from_scratch=True,
@@ -312,54 +306,54 @@ def test_ppo_param_realloc_sub_device_mesh(
             ),
         ),
         actor_gen=MFCConfig(
+            device_mesh="NODE01:0,1,2,3",
             parallel=ParallelismConfig(
                 data_parallel_size=actor_gen[0],
                 model_parallel_size=actor_gen[1],
                 pipeline_parallel_size=actor_gen[2],
-            )
+            ),
         ),
         actor_train=MFCConfig(
-            device_mesh="NODE01:0",
+            device_mesh="NODE01:4,5,6,7",
             parallel=ParallelismConfig(
-                data_parallel_size=1,
+                data_parallel_size=4,
                 model_parallel_size=1,
                 pipeline_parallel_size=1,
             ),
         ),
         critic_inf=MFCConfig(
+            device_mesh="NODE01:4,5,6,7",
             parallel=ParallelismConfig(
                 data_parallel_size=critic_inf[0],
                 model_parallel_size=critic_inf[1],
                 pipeline_parallel_size=critic_inf[2],
-            )
+            ),
         ),
         rew_inf=MFCConfig(
-            device_mesh="NODE01:1",
+            device_mesh="NODE01:4,5,6,7",
             parallel=ParallelismConfig(
-                data_parallel_size=1,
+                data_parallel_size=4,
                 model_parallel_size=1,
                 pipeline_parallel_size=1,
             ),
         ),
         ref_inf=MFCConfig(
-            device_mesh="NODE01:0",
+            device_mesh="NODE01:4,5,6,7",
             parallel=ParallelismConfig(
                 data_parallel_size=1,
-                model_parallel_size=1,
-                pipeline_parallel_size=1,
+                model_parallel_size=2,
+                pipeline_parallel_size=2,
             ),
         ),
         critic_train=MFCConfig(
-            device_mesh="NODE01:1",
+            device_mesh="NODE01:4,5,6,7",
             parallel=ParallelismConfig(
-                data_parallel_size=1,
+                data_parallel_size=2,
                 model_parallel_size=1,
-                pipeline_parallel_size=1,
+                pipeline_parallel_size=2,
             ),
         ),
     )
-    exp_cfg.actor.vllm.hybrid_train = True
-    exp_cfg.actor.vllm.enforce_eager = True
 
     run_test_exp(exp_cfg)
 

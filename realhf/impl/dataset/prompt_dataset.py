@@ -82,7 +82,6 @@ class PromptDataset(torch.utils.data.Dataset):
             ids=[self.ids[idx]],
             seqlens=[self.prompt_lengths[idx]],
             data=dict(packed_prompts=torch.tensor(self.prompts[idx], dtype=torch.long)),
-            metadata=dict(random_id=[uuid.uuid4()]),
         )
 
 
@@ -178,7 +177,6 @@ class MATHPromptDataset(torch.utils.data.Dataset):
                         [self.base_scores[idx]], dtype=torch.float32
                     ),
                 ),
-                metadata=dict(random_id=[uuid.uuid4()]),
             )
         else:
             return data_api.SequenceSample.from_default(
@@ -187,7 +185,6 @@ class MATHPromptDataset(torch.utils.data.Dataset):
                 data=dict(
                     packed_prompts=torch.tensor(self.prompts[idx], dtype=torch.long)
                 ),
-                metadata=dict(random_id=[uuid.uuid4()]),
             )
 
     def filter(self, eval_scores: Dict[Hashable, float]):
