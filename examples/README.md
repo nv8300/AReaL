@@ -13,14 +13,14 @@ Check if your hardware meets these minimum requirements:
 | Memory | 1 TB |1 TB per node|1 TB per node| 1 TB per node |1 TB per node|
 | Network | NVSwitch |NVSwitch + RoCE 3.2 Tbps|NVSwitch + RoCE 3.2 Tbps| NVSwitch + RoCE 3.2 Tbps |NVSwitch + RoCE 3.2 Tbps|
 | Storage | 1TB |Shared storage (NAS) 10TB|Shared storage (NAS) 10TB| Shared storage (NAS) 10TB |Shared storage (NAS) 10TB|
-| **Total Time (Hours)** | **520** | **150** | **50** | **410** | **130** |
+| **Total Time (Hours)** | **520** | **150** | **50** | **680** | **200** |
 
 Notes:
 - GPUs need to have 80GB memory. Other GPU models with similar specs are acceptable.
 - Single-node training can use local storage, but multi-node training requires shared storage.
 - Total Training Time = Number of Epochs × Number of Steps per Epoch × Training Time per Step
   - Number of Epochs defaults to 10.
-  - Number of Steps per Epoch depends on the dataset size. In this tutorial, the dataset approximately requires 40 steps per epoch for the 1.5B model and 20 steps for the 7B model. The batch sizes for 1.5B and 7B models are different.
+  - Number of steps per epoch depends on the dataset size and batch size. For example, with a dataset of 40,315 samples and a batch size of 1024, each epoch requires training for 40,315 / 1024 = 39.37 steps. Ultimately, an epoch will involve a minimum of 39 steps and a maximum of 40 steps of training.
   - Training Time per Step depends on the number of GPUs used.
 
 ## Software Requirements
