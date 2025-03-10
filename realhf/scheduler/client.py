@@ -123,8 +123,6 @@ class SchedulerClient:
 def get_python3_path():
     if cluster_spec.cluster_type == "ray":
         return subprocess.check_output(["which", "python3"]).decode("utf-8").strip()
-    if cluster_spec.name == "na132":
-        return "/usr/bin/python3"
     return "python3"
 
 
