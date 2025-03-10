@@ -5,9 +5,9 @@
 import dataclasses
 import math
 import threading
-import time
 from abc import ABC
-from typing import Callable, List
+from datetime import datetime
+from typing import List
 
 INFINITE_DURATION = 60 * 60 * 24 * 365 * 1000
 
@@ -33,9 +33,9 @@ class FrequencyControl:
         """
         self.frequency_seconds = frequency_seconds
         self.frequency_steps = frequency_steps
-        self.__start_time = time.monotonic()
+        self.__start_time = datetime.now()
         self.__steps = 0
-        self.__last_time = time.monotonic()
+        self.__last_time = datetime.now()
         self.__last_steps = 0
         self.__interval_seconds = self.__interval_steps = None
         self.__initial_value = initial_value
@@ -67,7 +67,8 @@ class FrequencyControl:
 
     @property
     def total_seconds(self):
-        return time.monotonic() - self.__start_time
+        now = datetime.now()
+        return (now - self.__start_time).total_seconds()
 
     @property
     def total_steps(self):
@@ -90,7 +91,7 @@ class FrequencyControl:
             flag: True if condition is met, False other wise
         """
         with self.__lock:
-            now = time.monotonic()
+            now = datetime.now()
             self.__steps += steps
 
             if self.__initial_value:
@@ -99,7 +100,7 @@ class FrequencyControl:
                 self.__initial_value = False
                 return True
 
-            self.__interval_seconds = now - self.__last_time
+            self.__interval_seconds = (now - self.__last_time).total_seconds()
             self.__interval_steps = self.__steps - self.__last_steps
             if self.frequency_steps is None and self.frequency_seconds is None:
                 return False
@@ -119,7 +120,7 @@ class FrequencyControl:
             return True
 
     def reset_time(self):
-        self.__last_time = time.monotonic()
+        self.__last_time = datetime.now()
 
 
 @dataclasses.dataclass
