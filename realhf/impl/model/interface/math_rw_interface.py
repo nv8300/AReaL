@@ -33,7 +33,7 @@ from realhf.impl.model.nn.real_llm_api import ReaLModel
 
 logger = logging.getLogger("Packed Reward Modeling Interface", "benchmark")
 
-ENABLE_FUNCTION_CALL = os.getenv("ENABLE_FUNCTION_CALL", True)
+ENABLE_FUNCTION_CALL = True if os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", "") else False
 math_verify_call = math_verify if ENABLE_FUNCTION_CALL else parse_lines_in_parallel
 
 

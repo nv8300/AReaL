@@ -77,7 +77,7 @@ python3 -m realhf.apps.quickstart ppo-math \
     actor.vllm.enforce_eager=False \
     actor.vllm.max_seq_len_to_capture=${MAX_SEQ_LEN_TO_CAPTURE} \
     actor.vllm.max_num_seqs=${MAX_NUM_SEQS} \
-    actor.vllm.gpu_memory_utilization=1 \
+    actor.vllm.gpu_memory_utilization=0.85 \
     actor.vllm.swap_space=64 \
     critic.type._class=$MODEL_FAMILY \
     critic.type.is_critic=True \

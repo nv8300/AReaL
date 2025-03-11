@@ -14,10 +14,9 @@ from functioncall.base import logging
 logger = logging.getLogger("Functioncall")
 
 
-FUNCTION_CALLING_SERVICE_DOMAIN = os.getenv(
-    "FUNCTION_CALLING_SERVICE_DOMAIN",
-    # "http://faas-api-service.hcsfaas-function-calling.svc.sa128.alipay.com:8080",
-    "http://110.75.255.101:8080",  # xvip
+FUNCTIONCALL_SERVICE_DOMAIN = os.getenv(
+    "FUNCTIONCALL_SERVICE_DOMAIN",
+    "",
 )
 
 
@@ -33,16 +32,16 @@ async def async_invoke_function(
     timeout: aiohttp.ClientTimeout,
     payload: Dict[str, Any] = None,
     max_retries: int = 3,
-    initial_retry_interval: float = 0.5,
+    initial_retry_interval: float = 0.1,
     max_retry_interval: float = 10.0,
 ):
     if payload is None:
         payload = {}
-    url = f"{FUNCTION_CALLING_SERVICE_DOMAIN}/hapis/faas.hcs.io/v1/functions/{function_name}/invoke"
+    url = f"{FUNCTIONCALL_SERVICE_DOMAIN}/hapis/faas.hcs.io/v1/functions/{function_name}/invoke"
     params = {"invocationType": "RequestResponse"}
 
     retries = 0
-    while retries <= max_retries:
+    while retries < max_retries:
         try:
             async with session.post(
                 url,
@@ -64,12 +63,12 @@ async def async_invoke_function(
 
         except asyncio.TimeoutError as e:
             logger.warning(
-                f"Request timeout after {timeout}s (attempt {retries + 1}/{max_retries}). "
-                f"URL: {url}, Headers: {session.headers}"
+                f"Request timeout after {timeout}s, URL: {url}, Headers: {session.headers}, payload: {payload}"
             )
+            break
 
         except Exception as e:
-            logger.error(f"Async invocation failed on attempt {retries + 1}:{str(e)}")
+            logger.error(f"Async invocation failed on attempt {retries + 1}:{str(e)}, URL: {url}, Headers: {session.headers}")
 
         retries += 1
         if retries > max_retries:

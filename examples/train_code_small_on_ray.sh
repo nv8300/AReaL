@@ -56,6 +56,7 @@ TRIAL_NAME="${TRAIN_BATCH_SIZE}x${GROUP_SIZE}-n${NODES}"
 unset CLUSTER_SPEC_PATH
 CLUSTER_SPEC_PATH=/storage/ray/cluster_config_on_ray.json \
 REAL_CODE_METADATA_PATH=${REAL_CODE_METADATA_PATH} \
+FUNCTIONCALL_SERVICE_DOMAIN="" \
 REAL_GPU_MEMORY_KILL_THRESHOLD=1 \
 python3 -m realhf.apps.quickstart ppo-code \
     mode=$MODE \
