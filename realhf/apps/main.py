@@ -162,6 +162,7 @@ def main_start(args, recover_count: int = 0):
         REAL_SAVE_RECOVER_STATES="1" if save_recover_states else "0",
         REAL_MATH_METADATA_PATH=os.getenv("REAL_MATH_METADATA_PATH", ""),
         REAL_CODE_METADATA_PATH=os.getenv("REAL_CODE_METADATA_PATH", ""),
+        FUNCTIONCALL_SERVICE_DOMAIN=os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", ""),
     )
     for k, v in BASE_ENVIRONS.items():
         os.environ[k] = v

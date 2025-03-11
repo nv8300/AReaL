@@ -22,8 +22,7 @@ def loadJson(dataDir):
 id2info = None
 
 
-def math_verify(generateds: List, query_ids: List, batch_size=20, timeout=60) -> List:
-    start_time = time.time()
+def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=5) -> List:
     global id2info
     if id2info is None:
         id2info = loadJson(
@@ -49,14 +48,17 @@ def math_verify(generateds: List, query_ids: List, batch_size=20, timeout=60) ->
             query_indices.append(idx)
 
     # Process in batches
+    start_time = time.time()
     batch_args_list = []
     for i in range(0, len(parameters), batch_size):
-        current_batch = parameters[i : i + batch_size]
+        answers, solutions, indices = zip(*parameters[i : i + batch_size])
         batch_args = {
-            "answers": [g for g, _, _ in current_batch],
-            "solutions": [s for _, s, _ in current_batch],
+            "answers": list(answers),
+            "solutions": list(solutions),
+            "query_ids": [query_ids[i] for i in indices],
         }
 
+        #print(batch_args)
         batch_args_list.append(batch_args)
 
     results_batch = batch_function_call(batch_args_list, "python_math", timeout)
@@ -65,15 +67,15 @@ def math_verify(generateds: List, query_ids: List, batch_size=20, timeout=60) ->
     # Map results back to original indices
     index = 0
     for batch_idx, results in enumerate(results_batch):
+        query_index = query_indices[index]
         if not isinstance(results, list) or len(results) == 0:
             index += len(batch_args_list[batch_idx]["answers"])
             logger.warning(
-                f"Invalid functioncall math results: {results}, batch index:{batch_idx}, query index: {index}."
+                f"Invalid functioncall math results: {results}, batch index:{batch_idx}, query index: {query_index}, params: {batch_args_list[batch_idx]['answers']}."
             )
             continue
 
         for result in results:
-            query_index = query_indices[index]
             if (
                 isinstance(result, list)
                 and len(result) > 0
@@ -100,7 +102,7 @@ if __name__ == "__main__":
         "answer": "\\boxed{-\\frac{2}{3}}",
     }
     start_time = time.time()
-    batch_size = 10000
+    batch_size = 10
     result = math_verify(
         [sample["answer"]] * batch_size, [sample["query_id"] for _ in range(batch_size)]
     )
