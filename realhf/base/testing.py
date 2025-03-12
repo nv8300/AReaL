@@ -24,7 +24,7 @@ from realhf.base import constants, gpu_utils, logging, name_resolve, names, topo
 from realhf.base.topology import (
     DataPipeModelParallelTopology,
     ParallelGrid,
-    PipeModelDataParallelTopology,
+    PipeDataModelParallelTopology,
 )
 
 logger = logging.getLogger("testing")
@@ -222,7 +222,7 @@ def init_global_constants(
 
     if topo is None:
         if is_train:
-            topo = PipeModelDataParallelTopology(
+            topo = PipeDataModelParallelTopology(
                 num_dp=num_dp,
                 num_mp=num_mp,
                 num_pp=num_pp,

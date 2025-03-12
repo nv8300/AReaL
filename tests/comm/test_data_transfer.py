@@ -19,7 +19,7 @@ from realhf.api.core.data_api import SequenceSample
 from realhf.base import constants, testing, topology
 from realhf.base.testing import (
     LocalMultiProcessTest,
-    PipeModelDataParallelTopology,
+    PipeDataModelParallelTopology,
     init_global_constants,
 )
 from realhf.system.data_manager import DataManager
@@ -39,7 +39,7 @@ def get_data_manager(
     from_world_size = from_num_dp * from_num_mp * from_num_pp
     to_world_size = to_num_dp * to_num_mp * to_num_pp
 
-    from_topo = topology.PipeModelDataParallelTopology(
+    from_topo = topology.PipeDataModelParallelTopology(
         num_dp=from_num_dp,
         num_mp=from_num_mp,
         num_pp=from_num_pp,
@@ -48,7 +48,7 @@ def get_data_manager(
         max_prompt_len=None,
         gradient_accumulation_fusion=False,
     )
-    to_topo = topology.PipeModelDataParallelTopology(
+    to_topo = topology.PipeDataModelParallelTopology(
         num_dp=to_num_dp,
         num_mp=to_num_mp,
         num_pp=to_num_pp,
@@ -143,7 +143,7 @@ def _test_data_transfer(
 ):
 
     from_model_name = ModelName("data_transfer_test", 0)
-    from_topo = PipeModelDataParallelTopology(
+    from_topo = PipeDataModelParallelTopology(
         num_pp=from_pp_dp_mp[0],
         num_mp=from_pp_dp_mp[-1],
         num_dp=from_pp_dp_mp[1],
@@ -152,7 +152,7 @@ def _test_data_transfer(
         gradient_accumulation_fusion=True,
     )
     to_model_name = ModelName("data_transfer_test", 1)
-    to_topo = PipeModelDataParallelTopology(
+    to_topo = PipeDataModelParallelTopology(
         num_pp=to_pp_dp_mp[0],
         num_mp=to_pp_dp_mp[-1],
         num_dp=to_pp_dp_mp[1],

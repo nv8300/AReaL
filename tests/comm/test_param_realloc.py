@@ -139,7 +139,7 @@ def setup_constants_and_param_realloc(
     from_world_size = from_num_dp * from_num_mp * from_num_pp
     to_world_size = to_num_dp * to_num_mp * to_num_pp
 
-    from_topo = topology.PipeModelDataParallelTopology(
+    from_topo = topology.PipeDataModelParallelTopology(
         num_dp=from_num_dp,
         num_mp=from_num_mp,
         num_pp=from_num_pp,
@@ -148,7 +148,7 @@ def setup_constants_and_param_realloc(
         max_prompt_len=None,
         gradient_accumulation_fusion=False,
     )
-    to_topo = topology.PipeModelDataParallelTopology(
+    to_topo = topology.PipeDataModelParallelTopology(
         num_dp=to_num_dp,
         num_mp=to_num_mp,
         num_pp=to_num_pp,
