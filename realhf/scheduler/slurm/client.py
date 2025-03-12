@@ -136,7 +136,6 @@ class SlurmSchedulerClient(SchedulerClient):
             wrap_cmd += f"--bind {launch_info.container_mounts} "
         wrap_cmd += f"{launch_info.container_image} "
         wrap_cmd += "bash -c '{}'".format(cmd)
-        wrap_cmd = wrap_cmd.format(cmd)
         launch_info.multiprog_content = f"0-{launch_info.n_jobsteps - 1} {wrap_cmd}\n"
         return launch_info
 

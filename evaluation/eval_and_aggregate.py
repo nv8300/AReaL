@@ -5,7 +5,6 @@ import subprocess
 from glob import glob
 
 import numpy as np
-import wandb
 from rm_maj_eval import group_pred
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -110,7 +109,6 @@ def get_metrics(fname_pattern, tokenizer, is_greedy):
             "num_questions": len(lengths),
         }
     else:
-
         return {
             "sample_length": np.mean(lengths),
             "sample_pass@1": pass_at_k(results.values(), 1),
