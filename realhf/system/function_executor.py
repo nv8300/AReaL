@@ -66,6 +66,8 @@ class FunctionExecutor:
         self.stream = stream
         self.buffer = buffer
 
+        self.data_loading_dp_idx = -1
+
         # Sort all MFCs in the topological order and
         # calculate the width of each level.
         # These numbers will determine when to flush MFC requests.
@@ -96,7 +98,7 @@ class FunctionExecutor:
         buffer = self.buffer
         ctrl = self.ctrl
 
-        dp_idx = -1
+        dp_idx = self.data_loading_dp_idx
         received_ids = set()
 
         while self.buffer.size < max(rpc.n_seqs for rpc in self.rpcs):
@@ -153,10 +155,12 @@ class FunctionExecutor:
             assert len(buffer_indices) == len(all_data)
 
             blogger.info(
-                f"Master worker loaded {len(all_data)} pieces of data. "
+                f"Master worker loaded {len(all_data)} pieces of data from DP rank {dp_idx}. "
                 f"Remaining number of data to ignore: {len(self.ctrl.hash_vals_to_ignore_in_recover)}. "
                 f"Current buffer size: {buffer.size}/{buffer.max_size}. "
             )
+
+        self.data_loading_dp_idx = dp_idx
 
     def execute_step(self):
         logger.info("Waiting for the finish of the execution graph.")
