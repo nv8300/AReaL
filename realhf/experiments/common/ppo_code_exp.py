@@ -282,8 +282,6 @@ class PPOCODEConfig(CommonExperimentConfig):
                 "function call address FUNCTIONCALL_SERVICE_DOMAIN is invalid."
             )
 
-        
-
         # interfaces
         actor_interface = ModelInterfaceAbstraction(
             "ppo_actor",

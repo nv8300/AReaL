@@ -285,8 +285,7 @@ class HFModelRegistry:
         hf_config = self.config_to_hf_converter(model.config)
         hf_config.architectures = [self.hf_cls_name]
         hf_config.name_or_path = str(save_dir)
-        # HACK: because currently our interface codes are all written in float16
-        hf_config.torch_dtype = "float16"
+        hf_config.torch_dtype = str(model.dtype).strip("torch.")
 
         param_size = sum(
             [value.numel() * value.element_size() for value in hf_sd.values()]

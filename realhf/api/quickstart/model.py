@@ -214,10 +214,8 @@ class ModelTrainEvalConfig:
     :type path: str
     :param gradient_checkpointing: Whether to use gradient checkpointing to save memory.
     :type gradient_checkpointing: bool
-    :param enable_fp16: Whether to use fp16 precision.
-    :type enable_fp16: bool
-    :param enable_bf16: Whether to use bf16 precision. Mutually exclusive with fp16.
-    :type enable_bf16: bool
+    :param bf16: Whether to use bf16 precision. Otherwise use fp16.
+    :type bf16: bool
     :param offload: Whether to offload model parameters to CPU. Only valid for the DeepSpeed backend.
     :type offload: bool
     :param parallel: Configuration for parallelism.
@@ -236,8 +234,7 @@ class ModelTrainEvalConfig:
     )
     path: str = ""
     gradient_checkpointing: bool = True
-    enable_fp16: bool = True
-    enable_bf16: bool = False
+    bf16: bool = False
     offload: bool = False
     zero_stage: int = dataclasses.field(
         metadata={"choices": [0, 1, 2, 3]},

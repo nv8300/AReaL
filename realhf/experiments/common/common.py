@@ -606,6 +606,7 @@ class CommonExperimentConfig(Experiment):
                             "vllm",
                             args=dict(
                                 model_path=model_cfg.path,
+                                dtype="bfloat16" if model_cfg.bf16 else "float16",
                                 **vllm_dict_args,
                             ),
                         ),
@@ -633,7 +634,7 @@ class CommonExperimentConfig(Experiment):
                     is_critic=model_cfg.type.is_critic,
                     init_from_scratch=model_cfg.init_from_scratch,
                     init_critic_from_actor=model_cfg.init_critic_from_actor,
-                    dtype="bf16" if model_cfg.enable_bf16 else "fp16",
+                    dtype="bf16" if model_cfg.bf16 else "fp16",
                 )
                 hf_config = transformers.AutoConfig.from_pretrained(
                     model_cfg.path,

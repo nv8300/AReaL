@@ -446,7 +446,7 @@ class PPOActorInterface(model_api.ModelInterface):
         res = SequenceSample(
             keys=["packed_ref_logprobs"],
             ids=input_.ids,
-            dtypes=dict(packed_ref_logprobs=torch.float16),
+            dtypes=dict(packed_ref_logprobs=model.module.dtype),
             trailing_shapes=dict(packed_ref_logprobs=()),
             data=dict(packed_ref_logprobs=logprobs),
             seqlens=dict(
@@ -949,7 +949,7 @@ class PPOCriticInterface(model_api.ModelInterface):
             data=dict(packed_input_ids=input_.data["packed_input_ids"]),
         )
         if self.disable_value:
-            scores = torch.zeros_like(input_.data["packed_input_ids"]).to(torch.float16)
+            scores = input_.data["packed_input_ids"].new_zeros(dtype=module.dtype)
         else:
             scores = module.forward(input_=input_flattend, mb_spec=mb_spec)
 
@@ -964,7 +964,7 @@ class PPOCriticInterface(model_api.ModelInterface):
         res = SequenceSample(
             keys=["values"],
             ids=input_.ids,
-            dtypes=dict(values=torch.float16),
+            dtypes=dict(values=module.dtype),
             trailing_shapes=dict(values=()),
             data=dict(values=scores),
             seqlens=dict(values=input_.seqlens["packed_input_ids"]),

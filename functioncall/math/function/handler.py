@@ -25,7 +25,7 @@ def handle(event, context):
     answers = event.get("answers", "")
     solutions = event.get("solutions", "")
 
-    #print(f"math payload:{event}\n")
+    # print(f"math payload:{event}\n")
     # answers and solutions are json lists, and call process_results then collect result into a list
     if isinstance(answers, str):
         answers = json.loads(answers)

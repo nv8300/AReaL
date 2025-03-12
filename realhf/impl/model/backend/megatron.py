@@ -883,8 +883,7 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
 
 @dataclasses.dataclass
 class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
-    enable_fp16: bool = True
-    enable_bf16: bool = False
+    bf16: bool = False
     zero_stage: int = dataclasses.field(
         metadata={"choices": [0, 1, 2, 3]},
         default=2,
@@ -946,8 +945,7 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
         lr = self.optimizer.lr
         opt_cfg = MegatronOptimizerConfig(
             optimizer=self.optimizer.type,
-            fp16=self.enable_fp16,
-            bf16=self.enable_bf16,
+            bf16=self.bf16,
             lr=lr,
             min_lr=self.optimizer.min_lr_ratio * lr,
             weight_decay=wd,

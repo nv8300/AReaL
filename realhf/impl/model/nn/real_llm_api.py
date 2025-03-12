@@ -909,7 +909,7 @@ def make_real_model(
     elif dtype == "bf16":
         dtype = torch.bfloat16
     elif dtype == "fp32":
-        dtype == torch.float32
+        dtype = torch.float32
     else:
         raise NotImplementedError(f"Unsupported dtype {dtype}")
 

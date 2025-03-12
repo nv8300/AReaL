@@ -77,8 +77,7 @@ class ProfileLayers:
                 warmup_steps_proportion=0.0,
                 min_lr_ratio=0.0,
                 zero_stage=1,
-                enable_fp16=True,
-                enable_bf16=False,
+                bf16=False,
             ),
         )
 

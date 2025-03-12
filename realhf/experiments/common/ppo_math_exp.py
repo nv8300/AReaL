@@ -277,13 +277,12 @@ class PPOMATHConfig(CommonExperimentConfig):
             raise RuntimeError(
                 "Dataset json path REAL_MATH_METADATA_PATH does not exist."
             )
-        
+
         domain = os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", "")
         if domain and (not (domain.startswith("http://") and ":" in domain)):
             raise RuntimeError(
                 "function call address FUNCTIONCALL_SERVICE_DOMAIN is invalid."
             )
-            
 
         # interfaces
         actor_interface = ModelInterfaceAbstraction(

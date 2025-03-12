@@ -58,11 +58,6 @@ def check_valid_backend(role: str, model: ModelTrainEvalConfig):
 
 
 def check_valid_model_and_path(role: str, model: ModelTrainEvalConfig):
-    if model.enable_bf16 and model.enable_fp16:
-        raise ValueError(
-            f"For model `{role}`, enable_bf16 and" " enable_fp16 cannot be both True."
-        )
-
     if not os.path.exists(model.path):
         raise FileNotFoundError(
             f"The model path `{model.path}` for `{role}` does not exist locally. "

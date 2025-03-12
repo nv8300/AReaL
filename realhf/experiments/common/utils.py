@@ -82,8 +82,7 @@ def make_train_backend_config(
                 ),
                 offload_optimizer_state=model_cfg.optimizer.offload,
                 offload_param=model_cfg.offload,
-                enable_bf16=model_cfg.enable_bf16,
-                enable_fp16=model_cfg.enable_fp16,
+                bf16=model_cfg.bf16,
             ),
         )
     elif model_cfg.backend == "megatron":
@@ -100,8 +99,7 @@ def make_train_backend_config(
         return ModelBackendAbstraction(
             "megatron",
             args=dict(
-                enable_bf16=model_cfg.enable_bf16,
-                enable_fp16=model_cfg.enable_fp16,
+                bf16=model_cfg.bf16,
                 zero_stage=model_cfg.zero_stage,
                 optimizer=model_cfg.optimizer,
                 **megatron_args,

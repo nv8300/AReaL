@@ -58,7 +58,7 @@ def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=5) -> 
             "query_ids": [query_ids[i] for i in indices],
         }
 
-        #print(batch_args)
+        # print(batch_args)
         batch_args_list.append(batch_args)
 
     results_batch = batch_function_call(batch_args_list, "python_math", timeout)
