@@ -186,7 +186,7 @@ def _test_data_transfer(
                 topo=from_topo,
             )
         ]
-        storage_tracker.add_data(
+        storage_tracker.add_data_synced(
             gpu_id,
             ids=[i + dp_rank * world_size for i in range(world_size)],
             key=key,

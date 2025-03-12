@@ -18,11 +18,7 @@ def model_class(request):
     return request.param
 
 
-def run_model_worker(
-    cfg,
-    mw,
-    barrier,
-):
+def run_model_worker(cfg, mw, barrier, expr_name=None):
     constants.set_force_cpu(True)
     # Register all datasets and models
     import realhf.impl.dataset  # isort: skip
@@ -31,7 +27,7 @@ def run_model_worker(
     from realhf.system.model_worker import ModelWorker
 
     system_api.ALL_EXPERIMENT_CLASSES = {}
-    register_experiment(testing._DEFAULT_EXPR_NAME, lambda: cfg)
+    register_experiment(expr_name or testing._DEFAULT_EXPR_NAME, lambda: cfg)
 
     worker = ModelWorker()
     logger.info("Configuring model worker...")
@@ -61,7 +57,7 @@ def run_test_exp(
     from realhf.system.master_worker import MasterWorker
 
     system_api.ALL_EXPERIMENT_CLASSES = {}
-    register_experiment(testing._DEFAULT_EXPR_NAME, lambda: exp_cfg)
+    register_experiment(expr_name or testing._DEFAULT_EXPR_NAME, lambda: exp_cfg)
 
     # Get worker configurations
     exp_setup = exp_cfg.initial_setup()
@@ -87,6 +83,7 @@ def run_test_exp(
                 cfg=exp_cfg,
                 mw=mw,
                 barrier=barrier,
+                expr_name=expr_name,
             )
             for mw in exp_setup.model_worker
         ],

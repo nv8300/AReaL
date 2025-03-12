@@ -260,7 +260,7 @@ class PPOActorInterface(model_api.ModelInterface):
             offset += x[0]
         assert offset == sum(x[0] for x in input_.seqlens["packed_prompts"])
 
-        if model.backend_name != "vllm":
+        if model.backend_name not in ["vllm", "sglang"]:
             # Replicate prompts
             grouped_input = SequenceSample.from_default(
                 ids=list(range(input_.bs * self.generation_size)),
@@ -287,7 +287,7 @@ class PPOActorInterface(model_api.ModelInterface):
             gconfig=self.gconfig,
             mb_spec=mb_spec,
         )
-        if res is None:
+        if res is None or res[0] is None:
             return None
 
         gen_tokens, logprobs, _ = res

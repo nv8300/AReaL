@@ -28,10 +28,9 @@ import torch.distributed
 import torch.distributed as dist
 import torch.utils.data
 
-import realhf.api.core.dfg as dfg
-import realhf.api.core.system_api as system_api
 import realhf.impl.model.comm.global_comm as global_comm
 import realhf.impl.model.comm.param_realloc as param_realloc_comm
+from realhf.api.core import data_api, dfg, model_api, system_api
 from realhf.api.core.config import ModelName
 from realhf.base import (
     constants,
@@ -56,8 +55,8 @@ from realhf.system.data_manager import DataManager
 from realhf.system.redistributor import RedistribStep
 
 # NOTE: Register all implemented datasets and models.
-import realhf.api.core.data_api as data_api  # isort:skip
-import realhf.api.core.model_api as model_api  # isort:skip
+import realhf.impl.dataset  # isort:skip
+import realhf.impl.model  # isort:skip
 
 logger = logging.getLogger("Model Worker", "colored")
 blogger = logging.getLogger("benchmark")
@@ -111,12 +110,6 @@ class ModelWorker(worker_base.Worker):
 
         self.config = cfg
         self.model_names = [s.id.model_name for s in cfg.shards]
-        self.shard_indices = [
-            cfg.model_topos[s.id.model_name].get_rank(
-                data=s.id.dp_rank, pipe=s.id.pp_rank, model=s.id.mp_rank
-            )
-            for s in cfg.shards
-        ]
 
         self.__experiment_name = self.config.worker_info.experiment_name
         self.__trial_name = self.config.worker_info.trial_name
@@ -516,7 +509,6 @@ class ModelWorker(worker_base.Worker):
             f"RPC hook {hook} CPU time {time.perf_counter() - tik:.4f}s."
         )
         if constants.use_cuda():
-            # FIXME: temporary synchronize for debugging
             torch.cuda.synchronize()
         return ret
 
@@ -933,16 +925,17 @@ class ModelWorker(worker_base.Worker):
         if constants.use_cuda():
             # Monitoring info. There's an all-gather and an all-reduce
             # over the parallelism group in this function.
-            # FIXME: temporary synchronize for debugging
             torch.cuda.synchronize()
-            if self._model.backend_name != "vllm":
-                # Since vLLM allocates GPU memory in advance, it is very
+            if (
+                self._model.backend_name != "vllm"
+                and self._model.backend_name != "sglang"
+            ):
+                # Since vLLM/SGLang allocates GPU memory in advance, it is very
                 # easy to exceed the 0.95 threshold that triggers a kill.
-                # We omit GPU stats logging for vLLM.
+                # We omit GPU stats logging for vLLM/SGLang.
                 self.__log_gpu_stats(request)
 
         self._clear_memory()
-        # FIXME: temporary synchronize for debugging
         if constants.use_cuda():
             torch.cuda.synchronize()
         dist.barrier(group=constants.parallelism_group())
@@ -973,8 +966,8 @@ class ModelWorker(worker_base.Worker):
         from_model_name: ModelName = hook_data["from_model_name"]
         to_model_name: ModelName = hook_data["to_model_name"]
 
-        from_topo: topology.PipeModelDataParallelTopology = hook_data["from_topo"]
-        to_topo: topology.PipeModelDataParallelTopology = hook_data["to_topo"]
+        from_topo: topology.ProcessTopology = hook_data["from_topo"]
+        to_topo: topology.ProcessTopology = hook_data["to_topo"]
 
         # NOTE: For the convenience of future developement, we
         # run parameter reallocation with disk save-load by default.
@@ -1121,22 +1114,21 @@ class ModelWorker(worker_base.Worker):
     def __load_model(self, hook_data: Dict):
         tik = time.perf_counter()
         with constants.model_scope(hook_data["model_name"]):
-            from realhf.impl.model.backend.vllm import (
-                vLLMGenerationBackend,
-                vLLMGenerationEngine,
-            )
-
             if isinstance(self._model.module, torch.nn.Identity) and isinstance(
-                self._backend, vLLMGenerationBackend
+                self._backend,
+                (
+                    model_api.ALL_BACKEND_CLASSES["sglang"],
+                    model_api.ALL_BACKEND_CLASSES["vllm"],
+                ),
             ):
-                # The uninitialized vLLM model. Since we create the model
-                # inside the vLLM backend, the initial param realloc before
+                # The uninitialized vLLM/SGLang model. Since we create the model
+                # inside the vLLM/SGLang backend, the initial param realloc before
                 # backend initialization can be ignored.
                 return
-            if self._model.backend_name == "vllm":
+            if self._model.backend_name in ["vllm", "sglang"]:
                 if constants.parallelism_rank() == 0:
-                    logger.info("Updating vLLM model from disk.")
-                module: vLLMGenerationEngine = self._model.module
+                    logger.info(f"Updating {self._model.backend_name} model from disk.")
+                module = self._model.module
                 module.update_weights_from_disk(hook_data["load_dir"])
             else:
                 module: ReaLModel = self.__unwrapped_models[hook_data["model_name"]]
@@ -1147,7 +1139,7 @@ class ModelWorker(worker_base.Worker):
             t = torch.tensor(
                 float(time.perf_counter() - tik),
                 dtype=torch.float64,
-                device=module.device,
+                device=constants.current_device(),
             )
             dist.all_reduce(
                 t, op=dist.ReduceOp.MAX, group=constants.parallelism_group()

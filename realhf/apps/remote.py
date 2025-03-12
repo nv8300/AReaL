@@ -91,8 +91,6 @@ def main_worker(args):
 
     # NOTE: Importing these will initialize DeepSpeed/CUDA devices.
     # profiler.import_profiler_registers()
-    import realhf.impl.dataset
-    import realhf.impl.model
     import realhf.system
 
     logger.debug(f"Run {args.worker_type} worker with args: %s", args)

@@ -39,6 +39,7 @@ class RPCCorountineControl:
     # For flushing requests
     topo_level_count: asyncio.Queue
 
+    lock: asyncio.Lock
     # for training data management and data cleaning after each step
     ids_to_clear: Set[Hashable] = dataclasses.field(default_factory=set)
     flops_counter: FlopsCounter = dataclasses.field(default_factory=FlopsCounter)
@@ -60,7 +61,7 @@ class ModelFunctionCall:
         src_rpc: dfg.MFCDef,
         stream: request_reply_stream.NameResolvingRequestClient,
         msid2mwid: Dict[config_pkg.ModelShardID, int],
-        model_topos: Dict[str, topology.PipeModelDataParallelTopology],
+        model_topos: Dict[str, topology.ProcessTopology],
         model_configs: Dict[str, None | ReaLModelConfig],
         ctrl: RPCCorountineControl,
         buffer: AsyncIOSequenceBuffer,
@@ -321,7 +322,8 @@ class ModelFunctionCall:
             for i in range(self.dp_size)
         ]
 
-        ctrl.flops_counter.add_rpc(rpc, sample, self.model_configs[rpc.model_name])
+        async with ctrl.lock:
+            ctrl.flops_counter.add_rpc(rpc, sample, self.model_configs[rpc.model_name])
 
         # logger.info(f"Model rpc {rpc.name} requesting.")
 
@@ -371,7 +373,7 @@ class ModelFunctionCall:
                 is_dp_head = h.mp_rank == 0 and h.pp_rank == topo.get_dim("pipe") - 1
                 gpu_id = self.msid2mwid[h]
                 for key in rpc.input_keys:
-                    self.redistrib_planner.storage_tracker.add_data(
+                    await self.redistrib_planner.storage_tracker.add_data(
                         gpu_id, partitioned_ids[h.dp_rank], key=key, is_owner=is_dp_head
                     )
         else:
@@ -379,18 +381,19 @@ class ModelFunctionCall:
                 if step.comm_type == "scatter":
                     for gpu_id, ids in zip(step.dsts, step.ids):
                         for key in step.keys:
-                            self.redistrib_planner.storage_tracker.add_data(
+                            await self.redistrib_planner.storage_tracker.add_data(
                                 gpu_id, ids, key=key, is_owner=False
                             )
                 elif step.comm_type == "gather":
                     for key in step.keys:
-                        self.redistrib_planner.storage_tracker.add_data(
+                        await self.redistrib_planner.storage_tracker.add_data(
                             step.root,
                             list(itertools.chain.from_iterable(step.ids)),
                             key=key,
                             is_owner=False,
                         )
 
+        await asyncio.sleep(0)
         # send partitioned data to model workers
         req_ids, other_req_ids = self.request(
             data_transfer_plan=data_transfer_plan,
@@ -425,7 +428,7 @@ class ModelFunctionCall:
                     )
                     gpu_id = self.msid2mwid[h]
                     for k in rpc.output_keys:
-                        self.redistrib_planner.storage_tracker.add_data(
+                        await self.redistrib_planner.storage_tracker.add_data(
                             gpu_id,
                             x.ids,
                             key=k,
@@ -455,7 +458,8 @@ class ModelFunctionCall:
         # update the train counter.
         # Otherwise, amend data in the buffer.
         if rpc.is_dst:
-            ctrl.ids_to_clear = ctrl.ids_to_clear.union(sample.ids)
+            async with ctrl.lock:
+                ctrl.ids_to_clear = ctrl.ids_to_clear.union(sample.ids)
             await ctrl.train_count.put(1)
         else:
             logger.info(f"Amending RPC {rpc.name} output keys: {res.keys}")

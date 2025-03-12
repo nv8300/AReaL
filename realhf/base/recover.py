@@ -35,6 +35,8 @@ class RecoverInfo:
     ckpt_ctl_info: Dict
     eval_ctl_info: Dict
 
+    data_loading_dp_idx: int
+
     hash_vals_to_ignore: List[int] = dataclasses.field(default_factory=list)
 
 

@@ -11,7 +11,7 @@ from realhf.api.core.data_api import DataBatchMeta, SequenceSample
 from realhf.api.core.dfg import MFCDef
 from realhf.api.core.model_api import ReaLModelConfig
 from realhf.base import logging
-from realhf.base.topology import PipeModelDataParallelTopology
+from realhf.base.topology import ProcessTopology
 from realhf.system.buffer import AsyncIOSequenceBuffer
 from realhf.system.model_function_call import ModelFunctionCall, RPCCorountineControl
 from realhf.system.redistributor import GlobalStorageTracker, RedistribPlanner
@@ -28,7 +28,7 @@ class FunctionExecutor:
         msid2mwid: Dict[ModelShardID, int],
         stream: NameResolvingRequestClient,
         buffer: AsyncIOSequenceBuffer,
-        model_topos: Dict[str, PipeModelDataParallelTopology],
+        model_topos: Dict[str, ProcessTopology],
         model_configs: Dict[str, None | ReaLModelConfig],
         ctrl: RPCCorountineControl,
         summary_writer: SummaryWriter | None,
@@ -91,6 +91,23 @@ class FunctionExecutor:
     async def finish_traverse(self):
         for _ in range(len(self.get_leaf_tasks())):
             await self.ctrl.train_count.get()
+        await self.clear_gpu_cache()
+
+    async def clear_gpu_cache(self):
+        async with self.ctrl.lock:
+            self.ctrl.used_hash_vals_this_epoch += list(self.ctrl.ids_to_clear)
+            self.stream.request(
+                handlers=list(range(self.n_model_workers)),
+                handle_type="clear_data_cache",
+                datas=[
+                    self.ctrl.ids_to_clear for _ in list(range(self.n_model_workers))
+                ],
+                no_syn=True,
+            )
+            # Clear resource tracker as well.
+            await self.storage_tracker.clear_data(self.ctrl.ids_to_clear)
+
+            self.ctrl.ids_to_clear.clear()
 
     async def load_data(self):
         src_rpc = self.src_rpc
@@ -119,40 +136,50 @@ class FunctionExecutor:
             if x.meta_sample is None:
                 continue
 
-            # RPCs corountines will use this information to
-            # determine the src and dst of data transfer.
-            for xx in x.meta_sample.unpack():
-                if xx.ids[0] in received_ids:
-                    raise ValueError(f"Duplicate data id {xx.ids[0]}.")
-                received_ids.add(xx.ids[0])
             all_data = x.meta_sample.unpack()
 
             filtered_data = []
+            ids_to_ignore = []
             for xx in x.meta_sample.unpack():
-                if xx.ids[0] in ctrl.hash_vals_to_ignore_in_recover:
-                    ctrl.hash_vals_to_ignore_in_recover.remove(xx.ids[0])
-                    ctrl.ids_to_clear.add(xx.ids[0])
-                else:
-                    filtered_data.append(xx)
+                async with ctrl.lock:
+                    if xx.ids[0] in ctrl.hash_vals_to_ignore_in_recover:
+                        ctrl.hash_vals_to_ignore_in_recover.remove(xx.ids[0])
+                        ids_to_ignore.append(xx.ids[0])
+                    else:
+                        if xx.ids[0] in received_ids:
+                            raise ValueError(f"Duplicate data id {xx.ids[0]}.")
+                        received_ids.add(xx.ids[0])
+                        filtered_data.append(xx)
+
+            if ids_to_ignore:
+                # Clear ignored data.
+                self.stream.request(
+                    handlers=list(range(self.n_model_workers)),
+                    handle_type="clear_data_cache",
+                    datas=[ids_to_ignore for _ in list(range(self.n_model_workers))],
+                    no_syn=True,
+                )
+
             all_data = filtered_data
 
             # We load data in a round-robin manner across different DP ranks,
             # so we also need to shuffle the data to fuse different dataset splits.
             random.shuffle(all_data)
 
-            # Update resource tracker for planning data redistribution.
-            gpu_id = self.stream.route_to(f"__data{dp_idx}__")
-            for k in all_data[0].keys:
-                self.storage_tracker.add_data(
-                    gpu_id,
-                    [x.ids[0] for x in all_data],
-                    k,
-                    is_owner=True,
-                )
+            if len(all_data) > 0:
+                # Update resource tracker for planning data redistribution.
+                gpu_id = self.stream.route_to(f"__data{dp_idx}__")
+                for k in all_data[0].keys:
+                    await self.storage_tracker.add_data(
+                        gpu_id,
+                        [x.ids[0] for x in all_data],
+                        k,
+                        is_owner=True,
+                    )
 
-            # Store into buffer!
-            buffer_indices = await buffer.put_batch(all_data)
-            assert len(buffer_indices) == len(all_data)
+                # Store into buffer!
+                buffer_indices = await buffer.put_batch(all_data)
+                assert len(buffer_indices) == len(all_data)
 
             blogger.info(
                 f"Master worker loaded {len(all_data)} pieces of data from DP rank {dp_idx}. "
@@ -173,19 +200,3 @@ class FunctionExecutor:
         ]
 
         loop.run_until_complete(asyncio.gather(*tasks))
-
-        logger.info("Execution finished!")
-
-        self.clear_gpu_cache()
-
-    def clear_gpu_cache(self):
-        self.stream.request(
-            handlers=list(range(self.n_model_workers)),
-            handle_type="clear_data_cache",
-            datas=[self.ctrl.ids_to_clear for _ in list(range(self.n_model_workers))],
-            no_syn=True,
-        )
-        # Clear resource tracker as well.
-        self.storage_tracker.clear_data(self.ctrl.ids_to_clear)
-
-        self.ctrl.ids_to_clear.clear()

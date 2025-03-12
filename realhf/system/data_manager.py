@@ -13,7 +13,7 @@ import torch.distributed as dist
 from realhf import SequenceSample
 from realhf.api.core.config import ModelName, ModelShardID
 from realhf.base import constants
-from realhf.base.topology import PipeModelDataParallelTopology, new_or_get_group
+from realhf.base.topology import ProcessTopology, new_or_get_group
 from realhf.impl.model.comm.global_comm import filter_match_mwids
 from realhf.system.redistributor import RedistribStep
 
@@ -26,7 +26,7 @@ class DataManager:
 
     def __init__(
         self,
-        model_topos: Dict[ModelName, PipeModelDataParallelTopology],
+        model_topos: Dict[ModelName, ProcessTopology],
         msid2mwid: Optional[Dict[ModelShardID, int]] = None,
         data_transfer_pairs: Optional[List[Tuple[ModelName, ModelName]]] = None,
     ):

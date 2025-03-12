@@ -30,7 +30,15 @@ import realhf.system.request_reply_stream as request_reply_stream
 import realhf.system.worker_base as worker_base
 from realhf.api.core.config import ModelName
 from realhf.api.core.model_api import ReaLModelConfig
-from realhf.base import constants, logging, name_resolve, names, timeutil, topology
+from realhf.base import (
+    constants,
+    logging,
+    name_resolve,
+    names,
+    seeding,
+    timeutil,
+    topology,
+)
 from realhf.system.buffer import AsyncIOSequenceBuffer
 from realhf.system.function_executor import FunctionExecutor
 from realhf.system.model_function_call import RPCCorountineControl
@@ -45,7 +53,9 @@ class MasterWorker(worker_base.Worker):
     def _configure(self, config: config_pkg.MasterWorker):
         self.config = config
 
-        self.__model_topos: Dict[ModelName, topology.PipeModelDataParallelTopology] = (
+        seeding.set_random_seed(self.config.base_seed + self.config.n_model_workers)
+
+        self.__model_topos: Dict[ModelName, topology.ProcessTopology] = (
             config.model_topos
         )
 
@@ -111,6 +121,7 @@ class MasterWorker(worker_base.Worker):
         self.__rpc_ctrl = RPCCorountineControl(
             train_count=asyncio.Queue(maxsize=len(self.__rpc_dsts)),
             topo_level_count=asyncio.Queue(maxsize=sum(self.__topo_widths)),
+            lock=asyncio.Lock(),
             # NOTE: We should accumulate the used data hashes in the same epoch
             # to prevent loading data used before.
             used_hash_vals_this_epoch=(
@@ -308,6 +319,10 @@ class MasterWorker(worker_base.Worker):
             ctrl=self.__rpc_ctrl,
             summary_writer=self.__summary_writer,
         )
+        if self.__recover_run:
+            self.func_executor.data_loading_dp_idx = (
+                self.__recover_info.data_loading_dp_idx
+            )
         logger.info(f"Coroutines created. The master worker is ready to run.")
 
         self.__initialized = True
@@ -343,14 +358,24 @@ class MasterWorker(worker_base.Worker):
             epochs=int(is_epoch_last_step), steps=1
         )
 
+        # Log eval/save info.
+        epoch = self.__rpc_ctrl.step_info.epoch + 1
+        epoch_step = self.__rpc_ctrl.step_info.epoch_step + 1
+        global_step = self.__rpc_ctrl.step_info.global_step + 1
+        s = f"The next step is epoch {epoch}/{self.config.exp_ctrl.total_train_epochs} "
+        s += f"step {epoch_step}/{self._steps_per_epoch} "
+        s += f"(global step {global_step}). "
+        s += f"Should save a checkpoint for recover? {self.__rpc_ctrl.should_ckpt}. "
+        s += f"Should save a persistent checkpoint for evaluation? {self.__rpc_ctrl.should_save}. "
+        s += f"Should run evaluation? {self.__rpc_ctrl.should_eval}. "
+        self.logger.info(s)
+
         # Traverse over the dataflow graph for once.
         self.func_executor.execute_step()
 
         # Post-process.
         if self.__rpc_ctrl.should_save or self.__rpc_ctrl.should_ckpt:
             self.__last_step_info = copy.deepcopy(self.__rpc_ctrl.step_info)
-
-        self.__rpc_ctrl.used_hash_vals_this_epoch += list(self.__rpc_ctrl.ids_to_clear)
 
         if is_epoch_last_step:
             self.__rpc_ctrl.used_hash_vals_this_epoch = (
@@ -431,8 +456,8 @@ class MasterWorker(worker_base.Worker):
             s += f"Estimated remaining time: {remain_t:.3f}s. "
         if flops is not None:
             s += f"TFLOP/s per GPU: {tflops_per_gpu:.2f}, total TFLOP/s: {tflops:.2f}."
-        logger.info(s)
-        logger.info(
+        self.logger.info(s)
+        self.logger.info(
             f"Time taken so far across all configurations: {time.perf_counter() - self.global_exp_tik:.2f}s"
         )
 
@@ -486,6 +511,7 @@ class MasterWorker(worker_base.Worker):
             save_ctl_info=self.__save_ctl.state_dict(),
             ckpt_ctl_info=self.__ckpt_ctl.state_dict(),
             eval_ctl_info=self.__eval_ctl.state_dict(),
+            data_loading_dp_idx=self.func_executor.data_loading_dp_idx,
             hash_vals_to_ignore=self.__rpc_ctrl.used_hash_vals_this_epoch,
         )
 

@@ -1,5 +1,6 @@
 # Copyright 2025 Ant Group Inc.
 
+import asyncio
 import dataclasses
 import itertools
 import os
@@ -11,12 +12,24 @@ from realhf.base.cluster import spec as cluster_spec
 
 class GlobalStorageTracker:
     def __init__(self, world_size: int):
+        self.lock = asyncio.Lock()
         self.storages: List[Dict[Hashable, List[str]]]
         self.storages = [{} for _ in range(world_size)]
         self.data_owner: Dict[Tuple[Hashable, str], int]
         self.data_owner = {}
 
-    def add_data(self, rank: int, ids: List[Hashable], key: str, is_owner: bool):
+    async def add_data(self, rank: int, ids: List[Hashable], key: str, is_owner: bool):
+        async with self.lock:
+            for data_id in ids:
+                if data_id not in self.storages[rank]:
+                    self.storages[rank][data_id] = [key]
+                else:
+                    if key not in self.storages[rank][data_id]:
+                        self.storages[rank][data_id].append(key)
+                if is_owner:
+                    self.data_owner[(data_id, key)] = rank
+
+    def add_data_synced(self, rank: int, ids: List[Hashable], key: str, is_owner: bool):
         for data_id in ids:
             if data_id not in self.storages[rank]:
                 self.storages[rank][data_id] = [key]
@@ -26,15 +39,16 @@ class GlobalStorageTracker:
             if is_owner:
                 self.data_owner[(data_id, key)] = rank
 
-    def clear_data(self, ids: List[Hashable]):
-        for storage in self.storages:
-            for i in ids:
-                if i in storage:
-                    storage.pop(i)
-        keys = list(self.data_owner.keys())
-        for i, k in keys:
-            if i in ids:
-                self.data_owner.pop((i, k))
+    async def clear_data(self, ids: List[Hashable]):
+        async with self.lock:
+            for storage in self.storages:
+                for i in ids:
+                    if i in storage:
+                        storage.pop(i)
+            keys = list(self.data_owner.keys())
+            for i, k in keys:
+                if i in ids:
+                    self.data_owner.pop((i, k))
 
 
 @dataclasses.dataclass
