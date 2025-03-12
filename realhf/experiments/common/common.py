@@ -48,7 +48,6 @@ from realhf.api.quickstart.model import (
 from realhf.base.cluster import spec as cluster_spec
 from realhf.experiments.common.check import (
     check_is_realhf_native_model_interface,
-    check_valid_backend,
     check_valid_model_and_path,
     check_valid_optimizer,
     check_valid_parallel_batch_size,
@@ -572,6 +571,7 @@ class CommonExperimentConfig(Experiment):
                     gradient_checkpointing=False,
                     max_prompt_len=(self.max_prompt_len),
                     gradient_accumulation_fusion=False,
+                    is_train=False,
                 )
                 model_cfg = self.models[model_name.role]
                 global vLLM_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN
@@ -675,6 +675,7 @@ class CommonExperimentConfig(Experiment):
                     ),
                     gradient_accumulation_fusion=(model_cfg.backend == "megatron")
                     and (model_cfg.type._class != "bailing"),
+                    is_train=any(rpc.is_train() for rpc in rpcs),
                 )
 
                 if any(rpc.is_train() for rpc in rpcs):
@@ -794,6 +795,5 @@ class CommonExperimentConfig(Experiment):
         for alloc in rpc_allocs:
             check_valid_parallel_batch_size(alloc)
         for role, model in self.models.items():
-            check_valid_backend(role, model)
             check_valid_model_and_path(role, model)
             check_valid_optimizer(model)

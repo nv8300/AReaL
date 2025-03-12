@@ -25,7 +25,11 @@ from realhf.api.quickstart.model import (
     parallelism_eq,
 )
 from realhf.base import logging
-from realhf.base.topology import PipeModelDataParallelTopology
+from realhf.base.topology import (
+    DataPipeModelParallelTopology,
+    PipeDataModelParallelTopology,
+    ProcessTopology,
+)
 
 logger = logging.getLogger("Experiment Common Utils", "benchmark")
 
@@ -34,16 +38,25 @@ def get_topo(
     parallel: ParallelismConfig,
     gradient_checkpointing: bool,
     gradient_accumulation_fusion: bool,
+    is_train: bool,
     max_prompt_len: Optional[int] = None,
-) -> PipeModelDataParallelTopology:
-    return PipeModelDataParallelTopology(
+) -> ProcessTopology:
+    if is_train:
+        return PipeDataModelParallelTopology(
+            num_mp=parallel.model_parallel_size,
+            num_pp=parallel.pipeline_parallel_size,
+            num_dp=parallel.data_parallel_size,
+            sequence_parallel=parallel.use_sequence_parallel,
+            gradient_checkpointing=gradient_checkpointing,
+            max_prompt_len=max_prompt_len,
+            gradient_accumulation_fusion=gradient_accumulation_fusion,
+        )
+    return DataPipeModelParallelTopology(
         num_mp=parallel.model_parallel_size,
         num_pp=parallel.pipeline_parallel_size,
         num_dp=parallel.data_parallel_size,
         sequence_parallel=parallel.use_sequence_parallel,
-        gradient_checkpointing=gradient_checkpointing,
         max_prompt_len=max_prompt_len,
-        gradient_accumulation_fusion=gradient_accumulation_fusion,
     )
 
 
@@ -58,49 +71,12 @@ def get_world_size(parallel: ParallelismConfig) -> int:
 def make_train_backend_config(
     model_cfg: ModelTrainEvalConfig, parallel_cfg: ParallelismConfig
 ):
-    if model_cfg.backend == "deepspeed":
-        return ModelBackendAbstraction(
-            "deepspeed",
-            args=dict(
-                optimizer_name="adam",
-                optimizer_config=dict(
-                    lr=model_cfg.optimizer.lr,
-                    weight_decay=model_cfg.optimizer.weight_decay,
-                    eps=model_cfg.optimizer.eps,
-                    betas=(
-                        model_cfg.optimizer.beta1,
-                        model_cfg.optimizer.beta2,
-                    ),
-                ),
-                lr_scheduler_type=model_cfg.optimizer.lr_scheduler_type,
-                warmup_steps_proportion=model_cfg.optimizer.warmup_steps_proportion,
-                min_lr_ratio=model_cfg.optimizer.min_lr_ratio,
-                zero_stage=(
-                    model_cfg.zero_stage
-                    if parallel_cfg.pipeline_parallel_size == 1
-                    else min(model_cfg.zero_stage, 1)
-                ),
-                offload_optimizer_state=model_cfg.optimizer.offload,
-                offload_param=model_cfg.offload,
-                bf16=model_cfg.bf16,
-            ),
-        )
-    elif model_cfg.backend == "megatron":
-        if model_cfg.optimizer.offload or model_cfg.offload:
-            raise ValueError("Offload is not supported in Megatron backend.")
-        if model_cfg.zero_stage == 3:
-            raise ValueError("Zero stage 3 is not supported in Megatron backend.")
-        if model_cfg.zero_stage == 2:
-            logger.warning(
-                "Megatron does not support ZeRO stage 2. Degenerates to stage 1."
-            )
-            model_cfg.zero_stage = 1
+    if model_cfg.backend == "megatron":
         megatron_args: Dict[str, Any] = OmegaConf.to_container(model_cfg.megatron)
         return ModelBackendAbstraction(
             "megatron",
             args=dict(
                 bf16=model_cfg.bf16,
-                zero_stage=model_cfg.zero_stage,
                 optimizer=model_cfg.optimizer,
                 **megatron_args,
             ),
@@ -225,10 +201,12 @@ def resolve_rpc_hooks(
 
 
 class AllocationType(enum.Enum):
-    DECOUPLED = 1
+    DECOUPLED_vLLM = 1
     GLOBAL_HYBRID = 2
     MANUAL = 3
-    SEARCH = 4
+    HEURISTIC = 4
+    SEARCH = 5
+    DECOUPLED_SGLANG = 6
 
 
 @dataclasses.dataclass
@@ -237,7 +215,16 @@ class AllocationMode:
     parallel_strat: Dict[str, Dict[str, int]]
 
     def is_decoupled(self):
-        return self.type_ == AllocationType.DECOUPLED
+        return self.type_ in [
+            AllocationType.DECOUPLED_vLLM,
+            AllocationType.DECOUPLED_SGLANG,
+        ]
+
+    def is_decoupled_vllm(self):
+        return self.type_ == AllocationType.DECOUPLED_vLLM
+
+    def is_decoupled_sglang(self):
+        return self.type_ == AllocationType.DECOUPLED_SGLANG
 
     def is_global_hybrid(self):
         return self.type_ == AllocationType.GLOBAL_HYBRID
@@ -246,13 +233,19 @@ class AllocationMode:
     def from_str(cls, allocation_mode: str):
         if allocation_mode == "manual":
             return cls(AllocationType.MANUAL, None)
+        if allocation_mode == "heuristic":
+            return cls(AllocationType.HEURISTIC, None)
         if allocation_mode == "search":
             return cls(AllocationType.SEARCH, None)
+
         alloc_3d = AllocationMode.extract_3d_alloc(allocation_mode)
         alloc_hybrid = AllocationMode.extract_key_value_alloc(allocation_mode)
         alloc_decoupled = AllocationMode.extract_decoupled_alloc(allocation_mode)
         if alloc_decoupled:
-            return cls(AllocationType.DECOUPLED, alloc_decoupled)
+            if "vllm" in allocation_mode:
+                return cls(AllocationType.DECOUPLED_vLLM, alloc_decoupled)
+            elif "sglang" in allocation_mode:
+                return cls(AllocationType.DECOUPLED_SGLANG, alloc_decoupled)
         if alloc_3d:
             return cls(AllocationType.GLOBAL_HYBRID, alloc_3d)
         if alloc_hybrid:

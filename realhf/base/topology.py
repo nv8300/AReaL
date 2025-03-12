@@ -65,15 +65,22 @@ def decompose_to_three_factors(n: int) -> List[Tuple[int, int, int]]:
     return factors
 
 
-class ProcessCoord(NamedTuple):
+class PipeDataModelrocessCoord(NamedTuple):
     pipe: int
     data: int
     model: int
 
 
+class DataPipeModelrocessCoord(NamedTuple):
+    data: int
+    pipe: int
+    model: int
+
+
 # Explicitly define these class to allow pickling.
 PROCESS_COORD_REGISTRY = {
-    "pipe#data#model": ProcessCoord,
+    "pipe#data#model": PipeDataModelrocessCoord,
+    "data#pipe#model": DataPipeModelrocessCoord,
 }
 
 
@@ -320,7 +327,7 @@ def _prime_factors(N):
     return primes
 
 
-class PipeModelDataParallelTopology(ProcessTopology):
+class PipeDataModelParallelTopology(ProcessTopology):
     """A topology for hybrid pipeline, model, and data parallelism."""
 
     def __init__(
@@ -339,6 +346,25 @@ class PipeModelDataParallelTopology(ProcessTopology):
         self.gradient_checkpointing = gradient_checkpointing
         self.max_prompt_len = max_prompt_len
         self.gradient_accumulation_fusion = gradient_accumulation_fusion
+
+
+class DataPipeModelParallelTopology(ProcessTopology):
+    """A topology for hybrid data, pipeline, and tensor parallelism.
+
+    Note that DP is the most outer dimension. Used for inference only.
+    """
+
+    def __init__(
+        self,
+        num_pp: int,
+        num_mp: int,
+        num_dp: int,
+        sequence_parallel: bool,
+        max_prompt_len: Optional[int] = None,
+    ):
+        super().__init__(axes=["data", "pipe", "model"], dims=[num_dp, num_pp, num_mp])
+        self.sequence_parallel = sequence_parallel
+        self.max_prompt_len = max_prompt_len
 
 
 class ParallelGrid:
@@ -365,7 +391,7 @@ class ParallelGrid:
 
     def __init__(
         self,
-        topology: PipeModelDataParallelTopology,
+        topology: ProcessTopology,
         process_group: dist.ProcessGroup,
         rank_mapping: Optional[Dict[int, int]] = None,
     ):
@@ -558,7 +584,7 @@ class ParallelGrid:
         transform = me._replace(pipe=stage_id, **kwargs)._asdict()
         return self._topo.get_rank(**transform)
 
-    def topology(self) -> PipeModelDataParallelTopology:
+    def topology(self) -> ProcessTopology:
         return self._topo
 
     # MPU functions for DeepSpeed integration
@@ -630,7 +656,7 @@ class ParallelGrid:
 class FakeGrid:
     """Used for testing dynamic scheduling in none-GPU environment."""
 
-    def __init__(self, rank: int, topo: PipeModelDataParallelTopology):
+    def __init__(self, rank: int, topo: ProcessTopology):
         self.rank = rank
         self._topo = topo
 

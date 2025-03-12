@@ -85,9 +85,6 @@ class OptimizerConfig:
     :param warmup_steps_proportion: Proportion of total training steps
         allocated for warming up. Should be in the interval [0.0, 1.0].
     :type warmup_steps_proportion: float
-    :param offload: Whether to offload the optimizer to CPU. Only valid
-        for the DeepSpeed backend.
-    :type offload: bool
     """
 
     type: str = dataclasses.field(
@@ -216,12 +213,8 @@ class ModelTrainEvalConfig:
     :type gradient_checkpointing: bool
     :param bf16: Whether to use bf16 precision. Otherwise use fp16.
     :type bf16: bool
-    :param offload: Whether to offload model parameters to CPU. Only valid for the DeepSpeed backend.
-    :type offload: bool
     :param parallel: Configuration for parallelism.
     :type parallel: ParallelismConfig
-    :param zero_stage: Stage of ZeRO optimization. Should be one of 0, 1, 2, or 3.
-    :type zero_stage: int
     :param optimizer: Configuration for the optimizer.
     :type optimizer: Optional[OptimizerConfig]
     :param init_critic_from_actor: Whether to initialize a critic/reward model from a saved LM checkpoint.
@@ -235,11 +228,6 @@ class ModelTrainEvalConfig:
     path: str = ""
     gradient_checkpointing: bool = True
     bf16: bool = False
-    offload: bool = False
-    zero_stage: int = dataclasses.field(
-        metadata={"choices": [0, 1, 2, 3]},
-        default=2,
-    )
     optimizer: Optional[OptimizerConfig] = dataclasses.field(
         default_factory=OptimizerConfig
     )

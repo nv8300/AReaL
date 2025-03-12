@@ -120,16 +120,14 @@ class ModelShardID:
     :param pp_rank: The pipeline-model parallel rank.
     :type pp_rank: int
     :param topo: The 3D parallelism topology of this model.
-    :type topo: PipeModelDataParallelTopology
+    :type topo: ProcessTopology
     """
 
     model_name: ModelName
     dp_rank: int
     mp_rank: int
     pp_rank: int
-    topo: topology.PipeModelDataParallelTopology = dataclasses.field(
-        default_factory=lambda: topology.PipeModelDataParallelTopology(1, 1, 1)
-    )
+    topo: topology.ProcessTopology
 
     def __post_init__(self):
         assert self.dp_rank >= 0 and self.mp_rank >= 0 and self.pp_rank >= 0

@@ -25,10 +25,7 @@ def check_is_realhf_native_model_interface(name):
 def check_valid_vllm(role: str, vllm: vLLMConfig, rpc_allocs: List[RPCAllocation]):
     rpcs = [alloc.rpc for alloc in rpc_allocs if alloc.rpc.role == role]
     if vllm.hybrid_train and not any(rpc.is_train() for rpc in rpcs):
-        logger.warning(
-            "vLLM hybrid_train is enabled, but no training RPCs are found. Set it to False."
-        )
-        vllm.hybrid_train = False
+        logger.warning("vLLM hybrid_train is enabled, but no training RPCs are found.")
     if vllm.hybrid_train and not vllm.enforce_eager:
         raise ValueError("vLLM hybrid_train requires eager mode to be enabled.")
 
@@ -42,18 +39,6 @@ def check_valid_optimizer(model: ModelTrainEvalConfig):
     ):
         raise ValueError(
             f"Invalid warmup_steps_proportion: {model.optimizer.warmup_steps_proportion}"
-        )
-
-
-def check_valid_backend(role: str, model: ModelTrainEvalConfig):
-    if (model.offload or model.optimizer.offload) and model.backend != "deepspeed":
-        raise ValueError(
-            f"For model `{role}`, offload is only" " valid for the deepspeed backend."
-        )
-    if model.backend == "megatron" and model.zero_stage in [3]:
-        raise ValueError(
-            f"For model `{role}`, the Megatron backend"
-            " only supports zero stage 0, 1 or 2."
         )
 
 

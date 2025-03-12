@@ -118,7 +118,7 @@ class ModelWorker:
     torch_cache_mysophobia: bool = False
     # model_topos and worker_info will be configured automatically
     model_rpcs: List[dfg.MFCDef] = None
-    model_topos: Dict[ModelName, topology.PipeModelDataParallelTopology] = None
+    model_topos: Dict[ModelName, topology.ProcessTopology] = None
     msid2mwid: Dict[ModelShardID, int] = None
     data_transfer_pairs: List[Tuple[str, str]] = None
     sync_param_pairs: List[Tuple[str, str]] = None
@@ -203,7 +203,7 @@ class MasterWorker:
     # main components
     n_model_workers: int
     model_rpcs: List[dfg.MFCDef] = None
-    model_topos: Dict[ModelName, topology.PipeModelDataParallelTopology] = None
+    model_topos: Dict[ModelName, topology.ProcessTopology] = None
     msid2mwid: Dict[ModelShardID | str, int] = None
     data_transfer_pairs: List[Tuple[str, str]] = None
     sync_param_pairs: List[Tuple[str, str]] = None
@@ -387,7 +387,7 @@ class ExperimentConfig:
 
     def _collect_topos(
         self, model_names: List[ModelName]
-    ) -> Dict[ModelName, topology.PipeModelDataParallelTopology]:
+    ) -> Dict[ModelName, topology.ProcessTopology]:
         model_topos = {}
         model_allocations = {}
         for model_name in model_names:

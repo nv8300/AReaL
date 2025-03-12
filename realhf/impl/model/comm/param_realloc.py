@@ -152,8 +152,8 @@ def _assign_src_to_dsts(
 
 
 def _create_param_realloc_groups(
-    from_topo: topology.PipeModelDataParallelTopology,
-    to_topo: topology.PipeModelDataParallelTopology,
+    from_topo: topology.ProcessTopology,
+    to_topo: topology.ProcessTopology,
     src: ModelName,
     dst: ModelName,
     msid2mwid: Dict[ModelShardID, int],
@@ -262,7 +262,7 @@ def _create_param_realloc_groups(
 
 
 def setup_param_realloc(
-    model_topos: Optional[Dict[str, topology.PipeModelDataParallelTopology]] = None,
+    model_topos: Optional[Dict[str, topology.ProcessTopology]] = None,
     msid2mwid: Optional[Dict[ModelShardID, int]] = None,
     param_realloc_pairs: Optional[List[Tuple[ModelName, ModelName]]] = None,
 ) -> ParamReallocInfo:
@@ -341,8 +341,8 @@ class ReparallelizeReceiverStep:
 def _derive_reparallelize_comm_plan(
     from_model_name: ModelName,
     to_model_name: ModelName,
-    from_topo: topology.PipeModelDataParallelTopology,
-    to_topo: topology.PipeModelDataParallelTopology,
+    from_topo: topology.ProcessTopology,
+    to_topo: topology.ProcessTopology,
     from_model_config: model_api.ReaLModelConfig,
     to_model_config: model_api.ReaLModelConfig,
     pg_info: ParamReallocInfo,

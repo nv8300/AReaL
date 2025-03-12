@@ -21,7 +21,11 @@ import torch.utils.data
 
 from realhf.api.core.data_api import SequenceSample
 from realhf.base import constants, gpu_utils, logging, name_resolve, names, topology
-from realhf.base.topology import ParallelGrid, PipeModelDataParallelTopology
+from realhf.base.topology import (
+    DataPipeModelParallelTopology,
+    ParallelGrid,
+    PipeModelDataParallelTopology,
+)
 
 logger = logging.getLogger("testing")
 
@@ -212,19 +216,28 @@ def init_global_constants(
     gradient_checkpointing=True,
     gradient_accumulation_fusion=False,
     max_prompt_len=None,
+    is_train: bool = True,
 ):
     model_name = model_name if model_name is not None else MODEL_NAME
 
     if topo is None:
-        topo = PipeModelDataParallelTopology(
-            num_dp=num_dp,
-            num_mp=num_mp,
-            num_pp=num_pp,
-            sequence_parallel=sequence_parallel,
-            gradient_checkpointing=gradient_checkpointing,
-            gradient_accumulation_fusion=gradient_accumulation_fusion,
-            max_prompt_len=max_prompt_len,
-        )
+        if is_train:
+            topo = PipeModelDataParallelTopology(
+                num_dp=num_dp,
+                num_mp=num_mp,
+                num_pp=num_pp,
+                sequence_parallel=sequence_parallel,
+                gradient_checkpointing=gradient_checkpointing,
+                gradient_accumulation_fusion=gradient_accumulation_fusion,
+                max_prompt_len=max_prompt_len,
+            )
+        else:
+            topo = DataPipeModelParallelTopology(
+                num_dp=num_dp,
+                num_mp=num_mp,
+                num_pp=num_pp,
+                sequence_parallel=sequence_parallel,
+            )
         ws = num_dp * num_mp * num_pp
     else:
         ws = topo.world_size()

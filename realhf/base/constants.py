@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from realhf.api.core.config import ModelName
     from realhf.api.core.system_api import ModelShardID
-    from realhf.base.topology import ParallelGrid, PipeModelDataParallelTopology
+    from realhf.base.topology import ParallelGrid, ProcessTopology
 
 
 class GlobalMemoryBuffer:
@@ -137,7 +137,6 @@ if cluster_spec.name == "wa180":
     BASE_ENVIRONS.update(PPU_ENVIRONS)
 elif cluster_spec.name == "na132":
     # Specific environment variable for h800 cluster na132
-    # FIXME: change to general cases for open source repo
     NV_ENVIRONS = {
         "NCCL_SOCKET_IFNAME": "bond0",
         "NCCL_NET_PLUGIN": "",
@@ -269,7 +268,7 @@ def set_self_group(pgroup):
 
 def set_rank_mapping(
     model_name: "ModelName",
-    topo: "PipeModelDataParallelTopology",
+    topo: "ProcessTopology",
     msid2mwid: Optional[Dict["ModelShardID", int]] = None,
 ):
     global _rank_mapping
@@ -317,8 +316,8 @@ def gradient_accumulation_fusion() -> bool:
         import fused_weight_gradient_mlp_cuda
     except ImportError:
         _grad_accum_fusion_available = False
-    return (
-        _grad_accum_fusion_available and grid().topology().gradient_accumulation_fusion
+    return _grad_accum_fusion_available and getattr(
+        grid().topology(), "gradient_accumulation_fusion", False
     )
 
 
@@ -327,7 +326,7 @@ def max_prompt_len() -> int:
 
 
 def gradient_checkpointing() -> bool:
-    return grid().topology().gradient_checkpointing
+    return getattr(grid().topology(), "gradient_checkpointing", False)
 
 
 def has_model_name(name: str) -> bool:

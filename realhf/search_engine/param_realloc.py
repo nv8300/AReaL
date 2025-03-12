@@ -39,8 +39,8 @@ def compute_cost(
     world_size: int,
     from_model_name: ModelName,
     to_model_name: ModelName,
-    from_topo: topology.PipeModelDataParallelTopology,
-    to_topo: topology.PipeModelDataParallelTopology,
+    from_topo: topology.ProcessTopology,
+    to_topo: topology.ProcessTopology,
     model_config: ReaLModelConfig,
     bw: float,  # Gbps
     set_interval_cost: float,
@@ -161,10 +161,10 @@ def dump_table(
         ):
             world_size = max(a, b)
 
-            from_topo = topology.PipeModelDataParallelTopology(
+            from_topo = topology.PipeDataModelParallelTopology(
                 *from_pp_mp_dp, False, False
             )
-            to_topo = topology.PipeModelDataParallelTopology(*to_pp_mp_dp, False, False)
+            to_topo = topology.PipeDataModelParallelTopology(*to_pp_mp_dp, False, False)
             assert world_size >= from_topo.world_size()
             assert world_size >= to_topo.world_size()
 
