@@ -22,7 +22,7 @@ def loadJson(dataDir):
 id2info = None
 
 
-def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=5) -> List:
+def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=1000) -> List:
     global id2info
     if id2info is None:
         id2info = loadJson(
@@ -43,7 +43,7 @@ def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=5) -> 
     for idx, (query_id, generated) in enumerate(zip(query_ids, generateds)):
         base_query_id = query_id.split("@idx:")[0]
         info = id2info[base_query_id]
-        for cur_solution in info["solutions"]:
+        for cur_solution in info["answers"]:
             parameters.append((generated, cur_solution, idx))
             query_indices.append(idx)
 
@@ -58,7 +58,6 @@ def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=5) -> 
             "query_ids": [query_ids[i] for i in indices],
         }
 
-        # print(batch_args)
         batch_args_list.append(batch_args)
 
     results_batch = batch_function_call(batch_args_list, "python_math", timeout)
@@ -67,15 +66,15 @@ def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=5) -> 
     # Map results back to original indices
     index = 0
     for batch_idx, results in enumerate(results_batch):
-        query_index = query_indices[index]
         if not isinstance(results, list) or len(results) == 0:
             index += len(batch_args_list[batch_idx]["answers"])
             logger.warning(
-                f"Invalid functioncall math results: {results}, batch index:{batch_idx}, query index: {query_index}, params: {batch_args_list[batch_idx]['answers']}."
+                f"Invalid functioncall math results: {results}, batch index:{batch_idx}, query index: {query_indices[index]}, params: {batch_args_list[batch_idx]['answers']}."
             )
             continue
 
         for result in results:
+            query_index = query_indices[index]
             if (
                 isinstance(result, list)
                 and len(result) > 0
@@ -90,23 +89,35 @@ def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=5) -> 
             index += 1
 
     logger.info(
-        f"verify math with query size={len(query_ids)}, takes {time.time() - start_time:.4f} seconds, result: {labels}"
+        f"verify math with query size={len(query_ids)}, takes {time.time() - start_time:.4f} seconds"
     )
     return labels
 
 
 if __name__ == "__main__":
-    sample = {
-        "prompt": "",
-        "query_id": "fe11b471-1aa9-4867-958f-a0a811c85f92",
-        "answer": "\\boxed{-\\frac{2}{3}}",
-    }
-    start_time = time.time()
-    batch_size = 10
-    result = math_verify(
-        [sample["answer"]] * batch_size, [sample["query_id"] for _ in range(batch_size)]
-    )
+    # sample = {
+    #     "prompt": "",
+    #     "query_id": "fe11b471-1aa9-4867-958f-a0a811c85f92",
+    #     "answer": "\\boxed{-\\frac{1}{30}}",
+    # }
 
-    hint = f"batch_size: {batch_size}, total time :   {(time.time() - start_time) * 1000:.0f} ms"
+    if id2info is None:
+        id2info = loadJson(
+            os.getenv(
+                "REAL_MATH_MEATADATA_PATH",
+                "/storage/datasets/id2info.json",
+            )
+        )
+    
+    answers = []
+    query_ids = []
+
+    for id, value in id2info.items():
+        answers.append(value["solutions"][0])
+        query_ids.append(id)
+    
+    start_time = time.time()
+    result = math_verify(
+        answers[:200], query_ids[:200]
+    )
     print(result)
-    print(hint)
