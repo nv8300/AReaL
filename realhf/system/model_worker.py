@@ -800,6 +800,16 @@ class ModelWorker(worker_base.Worker):
                 else:
                     self.__performance_recorder["time"].append(rpc_time)
 
+                with open(
+                    os.path.join(
+                        self._get_setup_logdir("performance"),
+                        f"rpc-mw{self.__worker_index}.txt",
+                    ),
+                    "a",
+                ) as f:
+                    f.write(f"rpc: {rpc.name} rank: {dist.get_rank()} time: {rpc_time}\n")
+
+
             if self.__enable_profiler:
                 if self._dp_rank == 0 and self._is_dp_head:
                     blogger.info(
