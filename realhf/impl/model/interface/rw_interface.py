@@ -1,29 +1,43 @@
 # Copyright 2025 Ant Group Inc.
+
 import collections
+import copy
 import dataclasses
 import html
+import itertools
 import json
 import os
+import random
 import re
 import xml.etree.ElementTree as ET
-from ast import parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional
 
 import colorama
 import numpy as np
+import requests
 import torch
 import torch.distributed as dist
+import tqdm
+import transformers
 
 import realhf.api.core.model_api as model_api
 import realhf.base.logging as logging
-from functioncall.code.verify import code_verify
+from functioncall.math.verify import math_verify
 from realhf.api.core.data_api import SequenceSample, load_hf_tokenizer
 from realhf.base import constants
+from realhf.base.constants import data_parallel_group, data_parallel_world_size
+from realhf.base.datapack import flat2d
+from realhf.impl.model.interface.math_parser import parse_lines_in_parallel
+from realhf.impl.model.nn.real_llm_api import ReaLModel
 
 logger = logging.getLogger("Packed Reward Modeling Interface", "benchmark")
 
+ENABLE_FUNCTION_CALL = True if os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", "") else False
+math_verify_call = math_verify if ENABLE_FUNCTION_CALL else parse_lines_in_parallel
 
-class CodeVerifierException(Exception):
+
+class VerifierException(Exception):
     pass
 
 
@@ -104,6 +118,19 @@ def check_with_elementtree(text):
         return False, f"Error: XML格式错误, {str(e)}"
 
 
+def reward_caculate(task, _answers, query_id_strs):
+    format_rewards = []
+    if task == "math":
+        format_rewards = math_verify_call(_answers, query_id_strs)
+    else:
+        codes = [extract_python_code(_answer) for _answer in _answers]
+        format_rewards = code_verify(codes, query_id_strs)
+    logger.info(
+        f"reward_caculate, task: {task}, size: {len(query_id_strs)}, query_id_0: {query_id_strs[0]}"
+    )
+    return format_rewards
+
+
 def retokenize(
     task,
     tokenizer,
@@ -132,8 +159,11 @@ def retokenize(
     # query_id_strs = query_ids
     query_id_strs = [query_id.split("@")[0] for query_id in query_ids]
 
-    format_rewards = []
+    logger.info(
+        f"retokenize, query_id_strs:{query_id_strs}, seq_strs:{seq_strs}, prompt_strs:{prompt_strs}"
+    )
 
+    format_rewards = []
     queryid_to_results = collections.defaultdict(list)
     # 8 processes on each node, with 10 subprocesses each
     if do_eval == True:
@@ -142,12 +172,7 @@ def retokenize(
             for seq_str, prompt_str in zip(seq_strs, prompt_strs)
         ]
 
-        codes = [extract_python_code(_answer) for _answer in _answers]
-        logger.info(
-            f"code_rw_interface, size: {len(query_id_strs)}, valid code size: {len(codes)}, query_id_0: {query_id_strs[0]}"
-        )
-        format_rewards = code_verify(codes, query_id_strs)
-
+        format_rewards = math_verify_call(_answers, query_id_strs)
         if check_xml_format:
             with ThreadPoolExecutor(max_workers=22) as executor:
                 futures = [
@@ -178,8 +203,7 @@ def retokenize(
 
 
 @dataclasses.dataclass
-class PackedCodeRewardInterface(model_api.ModelInterface):
-
+class PackedRewardInterface(model_api.ModelInterface):
     enable_save: bool = False
     tokenizer_path: str = "/storage/models/Qwen__Qwen2.5-1.5B"
     output_scaling: float = 1.0
@@ -189,13 +213,11 @@ class PackedCodeRewardInterface(model_api.ModelInterface):
     loss_fun = torch.nn.CrossEntropyLoss(reduction="none")
     max_sync_length: int = 2048
     rw_type: str = "sparse"
-    task: str = "code"  # math or countdown or code
+    task: str = "math"  # math or countdown
     check_xml_format: bool = False
     post_process: str = "sigmoid"
     group_size: int = 1
     check_verifier_status: bool = False
-
-    _call_count: int = 0
 
     def __post_init__(self):
         self.tokenizer = load_hf_tokenizer(self.tokenizer_path)
@@ -206,20 +228,6 @@ class PackedCodeRewardInterface(model_api.ModelInterface):
         logger.info(f"max_sync_length: {self.max_sync_length}")
         logger.info(f"rw_type: {self.rw_type}")
         logger.info(f"post_process: {self.post_process}")
-
-        while True:
-            gen_file_path = os.path.join(
-                constants.LOG_ROOT,
-                constants.experiment_name(),
-                constants.trial_name(),
-                "generated",
-                f"v{self._call_count}r{dist.get_rank()}.txt",
-            )
-            if os.path.exists(gen_file_path):
-                self._call_count += 1
-            else:
-                break
-        logger.info(f"call_count: {self._call_count}")
 
     def inference(
         self,
@@ -281,99 +289,103 @@ class PackedCodeRewardInterface(model_api.ModelInterface):
             scores.to(packed_input_ids.device) - self.output_bias
         ) * self.output_scaling
 
-        logger.info(f"Code reward logging info @v{model.version.global_step}")
+        logger.info(f"Math reward logging info @v{model.version.global_step}")
         logger.info(
             f"before: Format success rate: {torch.FloatTensor(format_rewards).mean().item()}"
         )
-        logger.info(
-            f"number of samples: {len(scores)}, {scores.shape}, group_size: {self.group_size}"
-        )
-
-        gen_file_path = os.path.join(
-            constants.LOG_ROOT,
-            constants.experiment_name(),
-            constants.trial_name(),
-            "generated",
-            f"v{self._call_count}r{dist.get_rank()}.txt",
-        )
-        os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
-        logger.info(f"Generated samples and rewards will be dumped to: {gen_file_path}")
-        with open(gen_file_path, "w") as _f:
-            for idx, (score, prompt_str, seq_str) in enumerate(
-                zip(scores, prompt_strs, seq_strs)
-            ):
-                info = "\n".join(
-                    [
-                        f"idx: {idx} / {len(scores)}",
-                        f"reward is {score.item()}, prompt is {colorama.Fore.YELLOW + colorama.Style.DIM}{prompt_str}{colorama.Style.RESET_ALL}",
-                        f"sequence is: {colorama.Fore.YELLOW + colorama.Style.DIM}{seq_str.split(prompt_str)[1]}{colorama.Style.RESET_ALL}.",
-                    ]
-                )
-                _f.write(info + "\n")
-
-        gen_file_path = os.path.join(
-            constants.LOG_ROOT,
-            constants.experiment_name(),
-            constants.trial_name(),
-            "generated_jsonl",
-            f"v{self._call_count}r{dist.get_rank()}.jsonl",
-        )
-        os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
-        logger.info(f"Generated samples and rewards will be dumped to: {gen_file_path}")
-        with open(gen_file_path, "w") as _f:
-            for idx, (score, prompt_str, seq_str) in enumerate(
-                zip(scores, prompt_strs, seq_strs)
-            ):
-                _f.write(
-                    json.dumps(
-                        {
-                            "prompt": prompt_str,
-                            "generated": seq_str.split(prompt_str)[1],
-                            "reward": score.item(),
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n"
-                )
-
-        logger.info(
-            f"Format success rate: {torch.FloatTensor(format_rewards).mean().item()}"
-        )
-
-        pass_at_k = np.mean(
-            [sum([xx == 1 for xx in x]) > 0 for x in queryid_to_results.values()]
-        )
-        avg_num_samples = np.mean([len(x) for x in queryid_to_results.values()])
-        logger.info(f"pass@k: {pass_at_k}, num_samples: {avg_num_samples}")
-
         logger.info(f"number of samples: {len(scores)}, {scores.shape}")
+        if constants.is_last_pipe_stage():
 
-        logger.info(f"reward: {sum(scores) / len(scores)}")
+            gen_file_path = os.path.join(
+                constants.LOG_ROOT,
+                constants.experiment_name(),
+                constants.trial_name(),
+                "generated",
+                f"v{model.version.global_step}r{dist.get_rank()}.txt",
+            )
 
-        train_pass_monitor_file_path = os.path.join(
-            constants.LOG_ROOT,
-            constants.experiment_name(),
-            constants.trial_name(),
-            "training_monitor",
-            f"v{self._call_count}r{dist.get_rank()}.jsonl",
-        )
-        os.makedirs(os.path.dirname(train_pass_monitor_file_path), exist_ok=True)
-        logger.info(
-            f"pass monitor result will be dumped to: {train_pass_monitor_file_path}"
-        )
-        with open(train_pass_monitor_file_path, "w") as monitor_file:
-            for key, value in queryid_to_results.items():
-                pass1 = sum(value) / len(value)
-                pass8 = int(sum(value) > 0)
-                monitor_file.write(
-                    json.dumps(
-                        {"query_id": key, "pass1": pass1, "pass8": pass8},
-                        ensure_ascii=False,
+            os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
+            logger.info(
+                f"Generated samples and rewards will be dumped to: {gen_file_path}"
+            )
+            with open(gen_file_path, "w") as _f:
+                for idx, (score, prompt_str, seq_str) in enumerate(
+                    zip(scores, prompt_strs, seq_strs)
+                ):
+                    info = "\n".join(
+                        [
+                            f"idx: {idx} / {len(scores)}",
+                            f"reward is {score.item()}, prompt is {colorama.Fore.YELLOW + colorama.Style.DIM}{prompt_str}{colorama.Style.RESET_ALL}",
+                            f"sequence is: {colorama.Fore.YELLOW + colorama.Style.DIM}{seq_str.split(prompt_str)[1]}{colorama.Style.RESET_ALL}.",
+                        ]
                     )
-                    + "\n"
-                )
+                    _f.write(info + "\n")
 
-        self._call_count += 1
+            gen_file_path = os.path.join(
+                constants.LOG_ROOT,
+                constants.experiment_name(),
+                constants.trial_name(),
+                "generated_jsonl",
+                f"v{model.version.global_step}r{dist.get_rank()}.jsonl",
+            )
+            os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
+            logger.info(
+                f"Generated samples and rewards will be dumped to: {gen_file_path}"
+            )
+            with open(gen_file_path, "w") as _f:
+                for idx, (score, prompt_str, seq_str) in enumerate(
+                    zip(scores, prompt_strs, seq_strs)
+                ):
+                    _f.write(
+                        json.dumps(
+                            {
+                                "prompt": prompt_str,
+                                "generated": seq_str.split(prompt_str)[1],
+                                "reward": score.item(),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+
+            logger.info(
+                f"Format success rate: {torch.FloatTensor(format_rewards).mean().item()}"
+            )
+
+            pass_at_k = np.mean(
+                [sum([xx == 1 for xx in x]) > 0 for x in queryid_to_results.values()]
+            )
+            avg_num_samples = np.mean([len(x) for x in queryid_to_results.values()])
+            logger.info(f"pass@k: {pass_at_k}, num_samples: {avg_num_samples}")
+
+            logger.info(f"number of samples: {len(scores)}, {scores.shape}")
+
+            logger.info(f"reward: {sum(scores) / len(scores)}")
+
+            train_pass_monitor_file_path = os.path.join(
+                constants.LOG_ROOT,
+                constants.experiment_name(),
+                constants.trial_name(),
+                "training_monitor",
+                f"v{model.version.global_step}r{dist.get_rank()}.jsonl",
+            )
+            os.makedirs(os.path.dirname(train_pass_monitor_file_path), exist_ok=True)
+            logger.info(
+                f"pass monitor result will be dumped to: {train_pass_monitor_file_path}"
+            )
+            with open(train_pass_monitor_file_path, "w") as monitor_file:
+                for key, value in queryid_to_results.items():
+                    pass1 = sum(value) / len(value)
+                    pass8 = int(sum(value) > 0)
+                    monitor_file.write(
+                        json.dumps(
+                            {"query_id": key, "pass1": pass1, "pass8": pass8},
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+
+        model.inc_version()
 
         if scores.dtype != torch.float32:
             scores = scores.to(torch.float32)
@@ -420,10 +432,13 @@ class PackedCodeRewardInterface(model_api.ModelInterface):
             minimal_score = (-1 - self.output_bias) * self.rm_output_scaling
 
             if avg_score <= minimal_score or np.isclose(avg_score, minimal_score):
-                raise CodeVerifierException(
+                raise VerifierException(
                     "All rewards are at minimal value. Probably there are something wrong with the verifier!"
                 )
+
+        if not constants.is_last_pipe_stage():
+            return None
         return res
 
 
-model_api.register_interface("rw_code", PackedCodeRewardInterface)
+model_api.register_interface("reward", PackedRewardInterface)

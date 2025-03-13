@@ -253,7 +253,7 @@ class PPOMATHConfig(CommonExperimentConfig):
                 "actor": self.actor,
                 # "critic": self.critic,
                 "ref": self.ref,
-                "reward": self.rew,
+                # "reward": self.rew,
             }
         else:
             return {
@@ -304,8 +304,6 @@ class PPOMATHConfig(CommonExperimentConfig):
                 "reward_delta": self.reward_delta,
             },
         )
-        ref_interface = copy.deepcopy(actor_interface)
-        ref_interface.args["enable_save"] = False
 
         critic_interface = ModelInterfaceAbstraction(
             "ppo_critic",
@@ -319,7 +317,7 @@ class PPOMATHConfig(CommonExperimentConfig):
         )
         critic_interface.args.pop("eps_clip")
         rw_interface = ModelInterfaceAbstraction(
-            "rw_math",
+            "reward",
             args=dict(
                 rw_type=self.rw_type,
                 task=self.task,
@@ -368,9 +366,16 @@ class PPOMATHConfig(CommonExperimentConfig):
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
-        inf_ref_inputs = ["packed_input_ids"]
+        # add rew param into ref MFC
+        inf_ref_inputs = ["packed_input_ids", "packed_prompts"]
+        inf_ref_outputs = ["packed_ref_logprobs", "rewards", "dense_rewards"]
+        ref_interface = copy.deepcopy(actor_interface)
+        ref_interface.type_ = "ref_rw"
+        ref_interface.args["enable_save"] = False
+        ref_interface.args["rew_inf_args"] = copy.deepcopy(rw_interface.args)
+
         inf_ref_logits = MFCDef(
-            name="ref_inf",
+            name="ref_rw",
             model_name="ref",
             mb_spec=self.ref_inf.mb_spec,
             interface_type=ModelInterfaceType.INFERENCE,
@@ -379,7 +384,7 @@ class PPOMATHConfig(CommonExperimentConfig):
             interface_impl=ref_interface,
             min_n_seqs_per_pass=1 / self.group_size,
             input_keys=inf_ref_inputs,
-            output_keys=["packed_ref_logprobs"],
+            output_keys=inf_ref_outputs,
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
@@ -451,8 +456,9 @@ class PPOMATHConfig(CommonExperimentConfig):
                 "actor_train": train_actor,
                 # "critic_inf": inf_values,
                 # "critic_train": train_critic,
-                "ref_inf": inf_ref_logits,
-                "rew_inf": inf_reward,
+                # "ref_inf": inf_ref_logits,
+                # "rew_inf": inf_reward,
+                "ref_rw": inf_ref_logits,
             }
         else:
             return {
@@ -472,8 +478,9 @@ class PPOMATHConfig(CommonExperimentConfig):
                 "actor_train": self.actor_train,
                 # "critic_inf": self.critic_inf,
                 # "critic_train": self.critic_train,
-                "ref_inf": self.ref_inf,
-                "rew_inf": self.rew_inf,
+                # "ref_inf": self.ref_inf,
+                # "rew_inf": self.rew_inf,
+                "ref_rw": self.ref_inf,
             }
         else:
             return {
