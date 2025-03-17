@@ -132,6 +132,23 @@ class vLLMConfig:
 
 
 @dataclasses.dataclass
+class DistributedDataParallelConfig:
+    """Configuration for Megatron DistributedDataParallel.
+    Some default options have been overwritten.
+    """
+
+    grad_reduce_in_fp32: bool = False
+    overlap_grad_reduce: bool = True
+    overlap_param_gather: bool = False
+    align_param_gather: bool = False
+    use_distributed_optimizer: bool = True
+    check_for_nan_in_grad: bool = False
+    bucket_size: Optional[int] = None
+    average_in_collective: bool = False
+    fp8_param_gather: bool = False
+
+
+@dataclasses.dataclass
 class MegatronConfig:
     """When using the DistributedOptimizer of Megatron, parameters and
     gradients will not be splitted across DP ranks, but optimizer states will
@@ -177,12 +194,11 @@ class MegatronConfig:
     make it functionally correct. The DeepSpeed code is too hard to read and modify.
     """
 
-    overlap_grad_reduce: bool = True
-    overlap_param_gather: bool = False
-    accumulate_allreduce_grads_in_fp32: bool = False
-
-    # addtional args
-    additional_config: Dict = dataclasses.field(default_factory=dict)
+    ddp: DistributedDataParallelConfig = dataclasses.field(
+        default_factory=DistributedDataParallelConfig
+    )
+    # Don't use MegatronOptimizerConfig here because OmegaConf
+    # does not recognize the annotation "torch.dtype"
 
 
 @dataclasses.dataclass
