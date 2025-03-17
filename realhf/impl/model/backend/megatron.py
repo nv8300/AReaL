@@ -946,6 +946,7 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
         opt_cfg = MegatronOptimizerConfig(
             optimizer=self.optimizer.type,
             bf16=self.bf16,
+            fp16=not self.bf16,
             lr=lr,
             min_lr=self.optimizer.min_lr_ratio * lr,
             weight_decay=wd,
