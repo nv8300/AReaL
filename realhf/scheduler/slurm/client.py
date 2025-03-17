@@ -127,9 +127,10 @@ class SlurmSchedulerClient(SchedulerClient):
         )
         wrap_cmd = "singularity exec "
         if cluster_spec.name == "na132":
-            wrap_cmd += "--pid --no-home --writable-tmpfs "
+            wrap_cmd += "--pid "
         if cluster_spec.gpu_type == "tesla":
             wrap_cmd += "--nv "
+        wrap_cmd += "--no-home --writable-tmpfs "
         if len(launch_info.env_vars) > 0:
             wrap_cmd += f"{' '.join([f'--env {k}={v}' for k, v in launch_info.env_vars.items()])} "
         if len(launch_info.container_mounts) > 0:
