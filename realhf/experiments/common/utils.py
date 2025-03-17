@@ -138,7 +138,7 @@ def resolve_replica_ids(
             if not same_alloc or (
                 alloc.rpc.is_generate()
                 and main_alloc.rpc.is_train()
-                and (models[role].vllm.hybrid_train)
+                and (models[role].vllm.hybrid_train or models[role].sglang.hybrid_train)
             ):
                 alloc.rpc.model_name = ModelName(role, i)
                 i += 1

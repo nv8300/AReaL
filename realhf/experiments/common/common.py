@@ -52,6 +52,7 @@ from realhf.experiments.common.check import (
     check_valid_model_and_path,
     check_valid_optimizer,
     check_valid_parallel_batch_size,
+    check_valid_sglang,
     check_valid_vllm,
 )
 from realhf.experiments.common.utils import (
@@ -596,6 +597,8 @@ class CommonExperimentConfig(Experiment):
 
                 if gen_backend_name == "vllm":
                     check_valid_vllm(model_name.role, model_cfg.vllm, rpc_allocs)
+                elif gen_backend_name == "sglang":
+                    check_valid_sglang(model_name.role, model_cfg.sglang, rpc_allocs)
 
                 shard_idx = shard_counter[model_name]
                 dict_args: Dict[str, Any] = asdict(backend_cfg)
@@ -693,6 +696,9 @@ class CommonExperimentConfig(Experiment):
                     rpc.is_generate() for rpc in rpcs
                 ):
                     assert len(rpcs) == 1 and rpcs[0].is_generate(), rpcs
+                    assert (
+                        not model_cfg.sglang.hybrid_train
+                    ), "vLLM and SGLang cannot be enabled at the same time"
                     dict_args: Dict[str, Any] = asdict(model_cfg.vllm)
                     check_valid_vllm(model_name.role, model_cfg.vllm, rpc_allocs)
                     backend = ModelBackendAbstraction(
@@ -701,6 +707,12 @@ class CommonExperimentConfig(Experiment):
                             model_path=model_cfg.path,
                             **dict_args,
                         ),
+                    )
+                elif model_cfg.sglang.hybrid_train and any(
+                    rpc.is_generate() for rpc in rpcs
+                ):
+                    raise NotImplementedError(
+                        "SGLang hybrid_train=True is not supported yet."
                     )
                 else:
                     backend = make_inf_backend_config(model_cfg, rpc_alloc.parallel)

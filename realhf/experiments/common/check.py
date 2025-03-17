@@ -8,7 +8,7 @@ from typing import List
 from packaging.version import Version
 
 from realhf.api.quickstart.device_mesh import RPCAllocation
-from realhf.api.quickstart.model import ModelTrainEvalConfig, vLLMConfig
+from realhf.api.quickstart.model import ModelTrainEvalConfig, SGLangConfig, vLLMConfig
 from realhf.base import logging
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,18 @@ def check_valid_vllm(role: str, vllm: vLLMConfig, rpc_allocs: List[RPCAllocation
             "For version < 0.7.0, vLLM hybrid_train requires eager mode to be enabled. "
             "The user has the responsibility to ensure the version is correct."
         )
+
+
+def check_valid_sglang(
+    role: str, sglang: SGLangConfig, rpc_allocs: List[RPCAllocation]
+):
+    rpcs = [alloc.rpc for alloc in rpc_allocs if alloc.rpc.role == role]
+    if sglang.hybrid_train and not any(rpc.is_train() for rpc in rpcs):
+        logger.warning(
+            "SGLang hybrid_train is enabled, but no training RPCs are found."
+        )
+    if sglang.hybrid_train and not sglang.disable_cuda_graph:
+        raise ValueError("SGLang hybrid_train requires CUDA graph to be disabled.")
 
 
 def check_valid_optimizer(model: ModelTrainEvalConfig):

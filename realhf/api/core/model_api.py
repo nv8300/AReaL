@@ -3,10 +3,12 @@
 # Licensed under the Apache License, Version 2.0 (the "License").
 
 import abc
+import asyncio
 import dataclasses
 import keyword
 from typing import *
 
+import aiohttp
 import numpy as np
 import torch
 import torch.utils.data
@@ -105,6 +107,139 @@ class GenerationHyperparameters:
             raise ValueError(
                 f"To use CUDAGraph, ReaL's PyTorch version should be at least 2.3.0."
             )
+
+    def new(self, **kwargs):
+        args = dataclasses.asdict(self)
+        args.update(kwargs)
+        return GenerationHyperparameters(**args)
+
+
+@dataclasses.dataclass
+class APIGenerateInput:
+    qid: Hashable
+    group_idx: int
+    prompt_ids: List[int]
+    input_ids: List[int]
+    gconfig: GenerationHyperparameters
+    stop_token_ids: List[int] = dataclasses.field(default_factory=list)
+    return_logprob: bool = False
+
+
+@dataclasses.dataclass
+class APIGenerateOutput:
+    qid: Hashable
+    group_idx: int
+    prompt_ids: List[int]
+    input_ids: List[int]
+    output_ids: List[int] = dataclasses.field(default_factory=list)
+    output_logprobs: List[int] = dataclasses.field(default_factory=list)
+    no_eos: bool = True
+    success: bool = False
+    latency: float = 0.0
+    ttft: float = 0.0  # Time to first token
+    itl: List[float] = dataclasses.field(
+        default_factory=list
+    )  # List of inter-token latencies
+    error: str = ""
+
+    @classmethod
+    def from_input(cls, inp: APIGenerateInput):
+        return cls(
+            qid=inp.qid,
+            group_idx=inp.group_idx,
+            prompt_ids=inp.prompt_ids,
+            input_ids=inp.input_ids,
+        )
+
+    @property
+    def output_len(self):
+        return len(self.output_ids)
+
+    @property
+    def input_len(self):
+        return len(self.input_ids)
+
+    @property
+    def prompt_len(self):
+        return len(self.prompt_ids)
+
+    @property
+    def gen_len(self):
+        return self.output_len + self.input_len - self.prompt_len
+
+
+@dataclasses.dataclass
+class BundledGenerationOutputs:
+    qid: Hashable
+    prompt_ids: List[int]
+    seqs: List[List[int]]
+    no_eos: List[bool]
+
+    @classmethod
+    def from_single(cls, outputs: List[APIGenerateOutput]):
+        assert len(set(o.qid for o in outputs)) == 1
+        return cls(
+            qid=outputs[0].qid,
+            prompt_ids=outputs[0].prompt_ids,
+            seqs=[o.input_ids + o.output_ids for o in outputs],
+            no_eos=[o.no_eos for o in outputs],
+        )
+
+    @property
+    def seqlens(self):
+        return [len(seq) for seq in self.seqs]
+
+    @property
+    def prompt_len(self):
+        return len(self.prompt_ids)
+
+
+AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
+
+
+class LLMAPIClient:
+    def __init__(
+        self, generate_url: str, update_weights_url: str, concurrency_limit: int = -1
+    ):
+        self.update_weights_url = update_weights_url
+        self.generate_url = generate_url
+        self.concurrency_limit = concurrency_limit
+
+        self.session: aiohttp.ClientSession
+        self.semaphore: asyncio.Semaphore
+
+    async def __aenter__(self):
+        conn = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+        self.session = aiohttp.ClientSession(
+            timeout=AIOHTTP_TIMEOUT,
+            connector=conn,
+            read_bufsize=1024 * 1024 * 10,
+        )
+        if self.concurrency_limit > 0:
+            self.semaphore = asyncio.Semaphore(self.concurrency_limit)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+
+    async def async_add_generate_request(
+        self, req: APIGenerateInput, stream: bool = True
+    ) -> APIGenerateOutput:
+
+        if self.concurrency_limit > 0:
+            async with self.semaphore:
+                return await self._do_generate(req, stream=stream)
+        else:
+            return await self._do_generate(req, stream=stream)
+
+    async def _do_generate(
+        self, req: APIGenerateInput, stream: bool = True
+    ) -> APIGenerateOutput:
+        raise NotImplementedError()
+
+    async def async_update_weights_from_disk(self, path):
+        raise NotImplementedError()
 
 
 @dataclasses.dataclass
