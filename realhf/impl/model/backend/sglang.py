@@ -369,6 +369,7 @@ class SGLangGenerationEngine(PipelinableEngine):
     def update_weights_from_disk(self, path):
         if constants.model_parallel_rank() != 0:
             dist.barrier(group=constants.model_parallel_group())
+            return
 
         async def _fn():
             async with SGLangAPIClient(

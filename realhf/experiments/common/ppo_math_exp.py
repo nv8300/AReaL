@@ -268,12 +268,15 @@ class PPOMATHConfig(CommonExperimentConfig):
     @property
     def rpcs(self):
         if (
-            self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens
+            (self._allocation_mode.is_decoupled_vllm() or self.actor.vllm.hybrid_train)
+            and self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens
             > self.actor.vllm.max_seq_len_to_capture
+            and not self.actor.vllm.enforce_eager
         ):
             raise RuntimeError(
                 f"vllm max seq len to capture {self.actor.vllm.max_seq_len_to_capture} is "
-                f"smaller than the prompt length + generation length {self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens}"
+                f"smaller than the prompt length + generation length "
+                f"{self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens}"
             )
         if not os.path.exists(os.getenv("REAL_MATH_METADATA_PATH")):
             raise RuntimeError(

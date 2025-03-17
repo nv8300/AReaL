@@ -365,6 +365,10 @@ class CommonExperimentConfig(Experiment):
             ),
         )
 
+    @property
+    def _allocation_mode(self):
+        return AllocationMode.from_str(self.allocation_mode)
+
     def _get_rpc_allocations(self) -> List[RPCAllocation]:
         if self.allocation_mode == "manual" and self.nodelist is None:
             logger.warning(
@@ -376,8 +380,6 @@ class CommonExperimentConfig(Experiment):
             )
 
         self._check_legal_allocation_options()
-
-        self._allocation_mode = AllocationMode.from_str(self.allocation_mode)
 
         rpcs = self.rpcs
         if self.allocation_mode == "search":
