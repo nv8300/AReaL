@@ -807,8 +807,9 @@ class ModelWorker(worker_base.Worker):
                     ),
                     "a",
                 ) as f:
-                    f.write(f"rpc: {rpc.name} rank: {dist.get_rank()} time: {rpc_time}\n")
-
+                    f.write(
+                        f"rpc: {rpc.name} rank: {dist.get_rank()} time: {rpc_time}\n"
+                    )
 
             if self.__enable_profiler:
                 if self._dp_rank == 0 and self._is_dp_head:
