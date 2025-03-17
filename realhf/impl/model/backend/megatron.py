@@ -469,7 +469,6 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
             mb_spec=mb_spec,
             output_seqlens=output_seqlens,
             post_hook=post_hook,
-            output_seqlens=output_seqlens,
             aggregate_fn=aggregate_fn,
         )
 
