@@ -834,6 +834,7 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
         self,
         input_: SequenceSample,
         mb_spec: MicroBatchSpec,
+        output_seqlens: List[List[int]] | None = None,
         post_hook: Callable[[torch.Tensor, SequenceSample], Any] | None = None,
         aggregate_fn: Callable[[List[Any]], Any] = torch.cat,
     ):
@@ -841,6 +842,7 @@ class ReaLMegatronEngine(model_api.PipelinableEngine):
             input_=input_,
             mb_spec=mb_spec,
             post_hook=post_hook,
+            output_seqlens=output_seqlens,
             aggregate_fn=aggregate_fn,
         )
 

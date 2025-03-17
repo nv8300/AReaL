@@ -4,6 +4,7 @@
 
 import dataclasses
 import itertools
+import os
 from collections import defaultdict
 from typing import *
 
@@ -69,7 +70,7 @@ import realhf.api.from_hf  # isort:skip
 
 logger = logging.getLogger("CommonExperimentConfig", "colored")
 
-vLLM_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN = False
+GEN_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN = False
 
 
 @dataclasses.dataclass
@@ -108,7 +109,7 @@ class CommonExperimentConfig(Experiment):
 
     - A regex pattern like ``d${DP}p${PP}m${TP}``\: Identical parallelization for all MFCs with ${DP}-way data parallelism, ${PP}-way pipeline parallelism, and ${TP}-way model parallelism.
 
-    - A regex pattern like ``vllm.{IdentPara}+{IdentPara}``\: Decoupled generation (vLLM) and training allocations with correspnding identical parallelization strategies. Note that the pipeline parallel degree of vLLM can only be 1.
+    - A regex pattern like ``{vllm|sglang}.{IdentPara}+{IdentPara}``\: Decoupled generation and training allocations with correspnding identical parallelization strategies.
 
     - Key-value pairs with MFC names and their parallel strategies in the whole cluster, e.g., ``actor_gen:d4m2p1,*:d2p2m2`` specifies a ``d4m2p1`` strategy for actor geneartion and ``d2p2m2`` for other MFCs in a world of 8 GPUs.
 
@@ -373,7 +374,7 @@ class CommonExperimentConfig(Experiment):
                 f"and n_gpus_per_node {self.n_gpus_per_node}."
             )
 
-        self.__check_legal_allocation_options()
+        self._check_legal_allocation_options()
 
         self._allocation_mode = AllocationMode.from_str(self.allocation_mode)
 
@@ -452,9 +453,9 @@ class CommonExperimentConfig(Experiment):
                         raise ValueError(
                             "The multiplication of 3D parallel degrees "
                             "does not equal to the number of gpus. "
-                            "Note that the device mesh of vLLM should be disjoint from the device mesh of other MFCs, "
+                            "Note that the device mesh of vLLM/SGLang should be disjoint from the device mesh of other MFCs, "
                             "so their summation should be equal to the total number of gpus. "
-                            f"dp={dp}, pp={pp}, mp={mp}, vllm.dp={gdp}, vllm.pp={gpp}, vllm.mp={gmp}, "
+                            f"dp={dp}, pp={pp}, mp={mp}, gen.dp={gdp}, gen.pp={gpp}, gen.mp={gmp}, "
                             f"n_nodes={self.n_nodes}, n_gpus_per_node={self.n_gpus_per_node}"
                         )
                     alloc = RPCAllocation(
@@ -535,7 +536,7 @@ class CommonExperimentConfig(Experiment):
     def _get_model_worker_configs(
         self, rpc_allocs: List[RPCAllocation]
     ) -> List[ModelWorker]:
-        self.__run_model_sanity_check(rpc_allocs)
+        self._run_model_sanity_check(rpc_allocs)
 
         model_worker = []
         shard_counter = defaultdict(lambda: 0)
@@ -557,7 +558,7 @@ class CommonExperimentConfig(Experiment):
                 tokenizer_name_or_path=self.tokenizer_name_or_path,
             )
 
-            # vLLM enabled model worker, shortcut case
+            # decoupled allocation, shortcut case
             if (
                 self._allocation_mode.is_decoupled()
                 and self.gen_device_mesh.mapping[i, j]
@@ -574,22 +575,30 @@ class CommonExperimentConfig(Experiment):
                     is_train=False,
                 )
                 model_cfg = self.models[model_name.role]
-                global vLLM_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN
+
+                gen_backend_name = ""
+                if self._allocation_mode.is_decoupled_vllm():
+                    gen_backend_name = "vllm"
+                elif self._allocation_mode.is_decoupled_sglang():
+                    gen_backend_name = "sglang"
+                backend_cfg = getattr(model_cfg, gen_backend_name)
+
+                global GEN_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN
                 if (
-                    model_cfg.vllm.hybrid_train
-                    and not vLLM_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN
+                    backend_cfg.hybrid_train
+                    and not GEN_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN
                 ):
                     logger.warning(
-                        "vLLM hybrid_train=True takes no effect for the decoupled allocation"
+                        "hybrid_train=True takes no effect for the decoupled allocation"
                     )
-                    vLLM_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN = True
-                model_cfg.vllm.hybrid_train = False
-                check_valid_vllm(model_name.role, model_cfg.vllm, rpc_allocs)
+                    GEN_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN = True
+                backend_cfg.hybrid_train = False
+
+                if gen_backend_name == "vllm":
+                    check_valid_vllm(model_name.role, model_cfg.vllm, rpc_allocs)
 
                 shard_idx = shard_counter[model_name]
-                vllm_dict_args: Dict[str, Any] = OmegaConf.to_container(
-                    model_cfg.vllm, resolve=True
-                )
+                dict_args: Dict[str, Any] = asdict(backend_cfg)
                 mw.shards.append(
                     StandaloneModelShardAbstraction(
                         id=ModelShardID(
@@ -603,11 +612,11 @@ class CommonExperimentConfig(Experiment):
                             "tokenizer", args=dict(tokenizer_path=model_cfg.path)
                         ),
                         backend=ModelBackendAbstraction(
-                            "vllm",
+                            gen_backend_name,
                             args=dict(
                                 model_path=model_cfg.path,
                                 dtype="bfloat16" if model_cfg.bf16 else "float16",
-                                **vllm_dict_args,
+                                **dict_args,
                             ),
                         ),
                     )
@@ -684,12 +693,13 @@ class CommonExperimentConfig(Experiment):
                     rpc.is_generate() for rpc in rpcs
                 ):
                     assert len(rpcs) == 1 and rpcs[0].is_generate(), rpcs
-                    vllm_dict_args: Dict[str, Any] = asdict(model_cfg.vllm)
+                    dict_args: Dict[str, Any] = asdict(model_cfg.vllm)
+                    check_valid_vllm(model_name.role, model_cfg.vllm, rpc_allocs)
                     backend = ModelBackendAbstraction(
                         "vllm",
                         args=dict(
                             model_path=model_cfg.path,
-                            **vllm_dict_args,
+                            **dict_args,
                         ),
                     )
                 else:
@@ -698,7 +708,6 @@ class CommonExperimentConfig(Experiment):
                     "vllm",
                     "sglang",
                 ]:
-                    print(rpcs, model_name, backend.type_)
                     raise ValueError(
                         "vLLM or SGLang is not enabled for generation. "
                         "This behavior has been deprecated. "
@@ -706,7 +715,6 @@ class CommonExperimentConfig(Experiment):
                         "or model.sglang.hybrid_train=True."
                     )
 
-                check_valid_vllm(model_name.role, model_cfg.vllm, rpc_allocs)
                 if mapping[i, j]:
                     shard_idx = shard_counter[model_name]
                     mw.shards.append(
@@ -749,7 +757,7 @@ class CommonExperimentConfig(Experiment):
             evaluator=self.auto_eval_config,
         )
 
-    def __check_legal_allocation_options(self):
+    def _check_legal_allocation_options(self):
         if self.n_nodes > 1 and self.mode == "local":
             raise ValueError(
                 "Cannot run multi-node experiment in local mode, "
@@ -791,7 +799,7 @@ class CommonExperimentConfig(Experiment):
                     f"RPC {rpc.name} model name {rpc.model_name.role} is not in models."
                 )
 
-    def __run_model_sanity_check(self, rpc_allocs: List[RPCAllocation]):
+    def _run_model_sanity_check(self, rpc_allocs: List[RPCAllocation]):
         for alloc in rpc_allocs:
             check_valid_parallel_batch_size(alloc)
         for role, model in self.models.items():

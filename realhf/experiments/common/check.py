@@ -2,9 +2,11 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 import os
+from importlib.metadata import version
 from typing import List
 
-import realhf.api.core.model_api as model_api
+from packaging.version import Version
+
 from realhf.api.quickstart.device_mesh import RPCAllocation
 from realhf.api.quickstart.model import ModelTrainEvalConfig, vLLMConfig
 from realhf.base import logging
@@ -27,7 +29,10 @@ def check_valid_vllm(role: str, vllm: vLLMConfig, rpc_allocs: List[RPCAllocation
     if vllm.hybrid_train and not any(rpc.is_train() for rpc in rpcs):
         logger.warning("vLLM hybrid_train is enabled, but no training RPCs are found.")
     if vllm.hybrid_train and not vllm.enforce_eager:
-        raise ValueError("vLLM hybrid_train requires eager mode to be enabled.")
+        logger.warning(
+            "For version < 0.7.0, vLLM hybrid_train requires eager mode to be enabled. "
+            "The user has the responsibility to ensure the version is correct."
+        )
 
 
 def check_valid_optimizer(model: ModelTrainEvalConfig):

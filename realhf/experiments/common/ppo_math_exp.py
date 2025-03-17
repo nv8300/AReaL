@@ -90,6 +90,7 @@ class PPOHyperparameters:
     eps_clip: float = 0.2
     value_eps_clip: float = 0.2
     disable_value: bool = False
+    recompute_logprob: bool = False
     max_reward_clip: float = 20.0
     reward_output_scaling: float = 1.0
     reward_output_bias: float = 0.0
@@ -198,6 +199,7 @@ class PPOMATHConfig(CommonExperimentConfig):
     critic_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     rew_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     ref_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
+    actor_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
 
     dataset: PromptOnlyDatasetConfig = dataclasses.field(
         default_factory=PromptOnlyDatasetConfig
@@ -336,6 +338,14 @@ class PPOMATHConfig(CommonExperimentConfig):
                 + 128,
             ),
         )
+        rollout_output_keys = [
+            "seq_no_eos_mask",
+            "packed_input_ids",
+            "packed_logprobs",
+            "prompt_mask",
+        ]
+        if self.ppo.recompute_logprob:
+            rollout_output_keys.remove("packed_logprobs")
         rollout = MFCDef(
             name="actor_gen",
             model_name="actor",
@@ -345,12 +355,21 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_path=self.actor.path,
             interface_impl=actor_interface,
             input_keys=["packed_prompts"],
-            output_keys=[
-                "seq_no_eos_mask",
-                "packed_input_ids",
-                "packed_logprobs",
-                "prompt_mask",
-            ],
+            output_keys=rollout_output_keys,
+            n_seqs=self.dataset.train_bs_n_seqs,
+        )
+
+        actor_inf = MFCDef(
+            name="actor_inf",
+            model_name="actor",
+            mb_spec=self.actor_inf.mb_spec,
+            interface_type=ModelInterfaceType.INFERENCE,
+            model_type=self.actor.type,
+            model_path=self.actor.path,
+            interface_impl=actor_interface,
+            input_keys=["packed_input_ids"],
+            output_keys=["packed_logprobs"],
+            output_key_remap=dict(logprobs="packed_logprobs"),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
@@ -380,6 +399,7 @@ class PPOMATHConfig(CommonExperimentConfig):
             min_n_seqs_per_pass=1 / self.group_size,
             input_keys=inf_ref_inputs,
             output_keys=["packed_ref_logprobs"],
+            output_key_remap=dict(logprobs="packed_ref_logprobs"),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
@@ -445,45 +465,40 @@ class PPOMATHConfig(CommonExperimentConfig):
             min_n_seqs_per_pass=self.ppo.ppo_n_minibatches / self.group_size,
             n_seqs=self.dataset.train_bs_n_seqs,
         )
+
+        rpcs = {
+            "actor_gen": rollout,
+            "actor_train": train_actor,
+            "critic_inf": inf_values,
+            "critic_train": train_critic,
+            "ref_inf": inf_ref_logits,
+            "actor_inf": actor_inf,
+            "rew_inf": inf_reward,
+        }
         if self.ppo.disable_value:
-            return {
-                "actor_gen": rollout,
-                "actor_train": train_actor,
-                # "critic_inf": inf_values,
-                # "critic_train": train_critic,
-                "ref_inf": inf_ref_logits,
-                "rew_inf": inf_reward,
-            }
-        else:
-            return {
-                "actor_gen": rollout,
-                "actor_train": train_actor,
-                "critic_inf": inf_values,
-                "critic_train": train_critic,
-                "ref_inf": inf_ref_logits,
-                "rew_inf": inf_reward,
-            }
+            rpcs.pop("critic_inf")
+            rpcs.pop("critic_train")
+        if not self.ppo.recompute_logprob:
+            rpcs.pop("actor_inf")
+        return rpcs
 
     @property
     def allocations(self):
+        allocs = {
+            "actor_gen": self.actor_gen,
+            "actor_train": self.actor_train,
+            "critic_inf": self.critic_inf,
+            "critic_train": self.critic_train,
+            "ref_inf": self.ref_inf,
+            "actor_inf": self.actor_inf,
+            "rew_inf": self.rew_inf,
+        }
         if self.ppo.disable_value:
-            return {
-                "actor_gen": self.actor_gen,
-                "actor_train": self.actor_train,
-                # "critic_inf": self.critic_inf,
-                # "critic_train": self.critic_train,
-                "ref_inf": self.ref_inf,
-                "rew_inf": self.rew_inf,
-            }
-        else:
-            return {
-                "actor_gen": self.actor_gen,
-                "actor_train": self.actor_train,
-                "critic_inf": self.critic_inf,
-                "critic_train": self.critic_train,
-                "ref_inf": self.ref_inf,
-                "rew_inf": self.rew_inf,
-            }
+            allocs.pop("critic_inf")
+            allocs.pop("critic_train")
+        if not self.ppo.recompute_logprob:
+            allocs.pop("actor_inf")
+        return allocs
 
     @property
     def datasets(self):
