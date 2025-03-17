@@ -149,7 +149,7 @@ def sglang_server_process(server_args_dict):
     from sglang.srt.utils import kill_process_tree
 
     sglang_version = version("sglang")
-    if sglang_version < Version("0.4.3"):
+    if Version(sglang_version) < Version("0.4.3"):
         from sglang.srt.server import launch_server
 
         server_args_dict.pop("enable_nccl_nvls")
