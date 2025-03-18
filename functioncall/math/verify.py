@@ -108,16 +108,14 @@ if __name__ == "__main__":
                 "/storage/datasets/id2info.json",
             )
         )
-    
+
     answers = []
     query_ids = []
 
     for id, value in id2info.items():
         answers.append(value["solutions"][0])
         query_ids.append(id)
-    
+
     start_time = time.time()
-    result = math_verify(
-        answers[:200], query_ids[:200]
-    )
+    result = math_verify(answers[:200], query_ids[:200])
     print(result)

@@ -26,7 +26,7 @@ def load_problems_with_testcase_batch(path, debug=False, test_case_batch_size=No
     for idx, line in enumerate(open(path, "rb")):
         if line is None:
             continue
-        
+
         # parse one problem
         row = json.loads(line.strip().decode("utf-8"))
         query_id = str(row.get("id", row.get("query_id")))
@@ -66,7 +66,9 @@ def load_problems_with_testcase_batch(path, debug=False, test_case_batch_size=No
 global_problems = None
 
 
-def code_verify(generateds, query_ids, debug=False, timeout=1000, timeout_for_testcase=6):
+def code_verify(
+    generateds, query_ids, debug=False, timeout=1000, timeout_for_testcase=6
+):
     assert len(generateds) == len(query_ids), (
         len(generateds),
         len(query_ids),

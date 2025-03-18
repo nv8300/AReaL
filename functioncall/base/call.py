@@ -67,7 +67,9 @@ async def async_invoke_function(
             break
 
         except Exception as e:
-            logger.error(f"Async invocation failed on attempt {retries + 1}:{str(e)}, URL: {url}, Headers: {session.headers}")
+            logger.error(
+                f"Async invocation failed on attempt {retries + 1}:{str(e)}, URL: {url}, Headers: {session.headers}"
+            )
 
         retries += 1
         if retries > max_retries:
