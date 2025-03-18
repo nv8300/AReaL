@@ -29,7 +29,7 @@ def load_problems_with_testcase_batch(path, debug=False, test_case_batch_size=No
 
         # parse one problem
         row = json.loads(line.strip().decode("utf-8"))
-        query_id = str(row["id"])
+        query_id = str(row.get("id", row.get("query_id")))
         input_output = json.loads(row["input_output"]) if "input_output" in row else {}
         inputs = input_output.get("inputs", [])
         outputs = input_output.get("outputs", [])
@@ -66,7 +66,9 @@ def load_problems_with_testcase_batch(path, debug=False, test_case_batch_size=No
 global_problems = None
 
 
-def code_verify(generateds, query_ids, debug=False, timeout=20, timeout_for_testcase=6):
+def code_verify(
+    generateds, query_ids, debug=False, timeout=1000, timeout_for_testcase=6
+):
     assert len(generateds) == len(query_ids), (
         len(generateds),
         len(query_ids),
@@ -116,13 +118,10 @@ def code_verify(generateds, query_ids, debug=False, timeout=20, timeout_for_test
         value = 0
         if rsp and "result" in rsp and not any(x != True for x in rsp["result"]):
             value = 1
-
         else:
             logger.debug(
-                f"Functioncall code verify failed, query index: {query_index}, query id: {query_id}, results: {rsp}"
+                f"Functioncall code verify not passed, query index: {query_index}, query id: {query_id}, results: {rsp}"
             )
-
-        # logger.debug(f"query index: {idx}, value: {value}, results[query_index]: {results[query_index]}")
 
         results[query_index] = results[query_index] and value
 
@@ -133,6 +132,15 @@ if __name__ == "__main__":
 
     def create_test_params(count=10):
         global global_problems
+        if global_problems is None:
+            global_problems = load_problems_with_testcase_batch(
+                os.getenv(
+                    "REAL_CODE_METADATA_PATH",
+                    "/storage/datasets/codeparrot-apps-test.jsonl",
+                ),
+                debug=True,
+                test_case_batch_size=20,
+            )
         codes, query_ids = [], []
         idx = 0
         for query_id, problems in global_problems.items():
@@ -149,6 +157,6 @@ if __name__ == "__main__":
 
         return codes, query_ids
 
-    codes, query_ids = create_test_params(1000)
-    result = code_verify(codes, query_ids, True, 100)
+    codes, query_ids = create_test_params(100)
+    result = code_verify(codes, query_ids, True)
     print(result)

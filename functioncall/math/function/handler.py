@@ -1,16 +1,13 @@
 import json
+import time
 from parser import extract_answer
-
 from grader import math_equal
 
 
 def process_results(answer, solution):
     extracted_answer = extract_answer(answer, "math", use_last_number=False)
-    extracted_solution = extract_answer(solution, "math", use_last_number=True)
+    extracted_solution = solution
 
-    print(
-        f"extracted_answer: {extracted_answer}, extracted_solution: {extracted_solution}, equal: {math_equal(extracted_answer, extracted_solution)}"
-    )
     if extracted_answer is None or extracted_answer.strip() in ["None", "none", ""]:
         retval = 0
     elif math_equal(extracted_answer, extracted_solution, timeout=True):
@@ -24,16 +21,19 @@ def process_results(answer, solution):
 def handle(event, context):
     answers = event.get("answers", "")
     solutions = event.get("solutions", "")
-
-    # print(f"math payload:{event}\n")
-    # answers and solutions are json lists, and call process_results then collect result into a list
-    if isinstance(answers, str):
-        answers = json.loads(answers)
-    if isinstance(solutions, str):
-        solutions = json.loads(solutions)
+    query_ids = event.get("query_ids", "")
 
     results = []
-    for answer, solution in zip(answers, solutions):
-        results.append(process_results(answer, solution))
+    for answer, solution, query_id in zip(
+        answers,
+        solutions,
+        query_ids,
+    ):
+        start_time = time.time()
+        result = process_results(answer, solution)
+        results.append(result)
+        print(
+            f"query_id: {query_id}, result: {result}, current cost: {(time.time() - start_time) * 1000:.0f} ms"
+        )
 
     return results
