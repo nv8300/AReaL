@@ -17,11 +17,7 @@ import torch.distributed as dist
 from realhf.api.core.config import ModelName, ModelShardID
 from realhf.api.core.data_api import SequenceSample
 from realhf.base import constants, testing, topology
-from realhf.base.testing import (
-    LocalMultiProcessTest,
-    PipeDataModelParallelTopology,
-    init_global_constants,
-)
+from realhf.base.testing import LocalMultiProcessTest, init_global_constants
 from realhf.system.data_manager import DataManager
 from realhf.system.redistributor import GlobalStorageTracker, RedistribPlanner
 
@@ -143,7 +139,7 @@ def _test_data_transfer(
 ):
 
     from_model_name = ModelName("data_transfer_test", 0)
-    from_topo = PipeDataModelParallelTopology(
+    from_topo = topology.PipeDataModelParallelTopology(
         num_pp=from_pp_dp_mp[0],
         num_mp=from_pp_dp_mp[-1],
         num_dp=from_pp_dp_mp[1],
@@ -152,7 +148,7 @@ def _test_data_transfer(
         gradient_accumulation_fusion=True,
     )
     to_model_name = ModelName("data_transfer_test", 1)
-    to_topo = PipeDataModelParallelTopology(
+    to_topo = topology.PipeDataModelParallelTopology(
         num_pp=to_pp_dp_mp[0],
         num_mp=to_pp_dp_mp[-1],
         num_dp=to_pp_dp_mp[1],

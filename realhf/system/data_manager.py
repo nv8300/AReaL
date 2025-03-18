@@ -12,7 +12,7 @@ import torch.distributed as dist
 
 from realhf import SequenceSample
 from realhf.api.core.config import ModelName, ModelShardID
-from realhf.base import constants
+from realhf.base import constants, logging
 from realhf.base.topology import ProcessTopology, new_or_get_group
 from realhf.impl.model.comm.global_comm import filter_match_mwids
 from realhf.system.redistributor import RedistribStep
@@ -20,6 +20,8 @@ from realhf.system.redistributor import RedistribStep
 BCAST_GROUPS = {}
 GATHER_GROUPS = {}
 SCATTER_GROUPS = {}
+
+logger = logging.getLogger("data_manager", "system")
 
 
 class DataManager:
@@ -325,8 +327,21 @@ class DataManager:
         )
 
         if dist.get_rank() == step.root:
-            scatter_list = []
-            for ids in step.ids:
+            # Scatter destinations include all DP, TP, and PP ranks
+            # and data is duplicated among TP/PP groups
+            # We allocate new memory for DP ranks, but use the same pointer
+            # for all TP and PP ranks to save memory.
+            scatter_clusters = []
+            for idx, ids in enumerate(step.ids):
+                for _ids, idx_list in scatter_clusters:
+                    if set(ids) == set(_ids):
+                        idx_list.append(idx)
+                        break
+                else:
+                    scatter_clusters.append((ids, [idx]))
+            scatter_list = [None for _ in range(len(step.ids))]
+            before_pad = []
+            for ids, idx_list in scatter_clusters:
                 for i in ids:
                     self.storage[i].to_device(constants.current_device())
                 samples = [self.storage[i] for i in ids]
@@ -337,11 +352,17 @@ class DataManager:
                         for key in step.keys
                     ]
                 )
-                scatter_list.append(data)
-            maxlen = max([x.shape[0] for x in scatter_list])
-            scatter_list = [self._pad_data(x, maxlen) for x in scatter_list]
-            if step.root not in step.dsts:
+                before_pad.append(data)
 
+            maxlen = max([x.shape[0] for x in before_pad])
+            after_pad = [self._pad_data(x, maxlen) for x in before_pad]
+            for (ids, idx_list), data in zip(scatter_clusters, after_pad):
+                for idx in idx_list:
+                    scatter_list[idx] = data
+
+            assert all([torch.is_tensor(t) for t in scatter_list])
+
+            if step.root not in step.dsts:
                 idx = bisect.bisect(step.dsts, step.root)
                 scatter_list.insert(idx, buf)
         else:
