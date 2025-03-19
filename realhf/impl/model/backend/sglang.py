@@ -182,7 +182,7 @@ class SGLangGenerationEngine(PipelinableEngine):
         request_timeout: int = 1800,
     ):
         if constants.model_parallel_rank() != 0:
-            dist.barrier(group=constants.model_parallel_group())
+            dist.barrier(group=constants.model_parallel_cpu_group())
             return
         # Start the serving process
         self.server_proc = mp.Process(
@@ -209,7 +209,7 @@ class SGLangGenerationEngine(PipelinableEngine):
         # offload weights/cache
         self.hybrid_train = hybrid_train
 
-        dist.barrier(group=constants.model_parallel_group())
+        dist.barrier(group=constants.model_parallel_cpu_group())
 
     def __del__(self):
         if hasattr(self, "server_proc"):
@@ -352,7 +352,7 @@ class SGLangGenerationEngine(PipelinableEngine):
                 "because we force to skip_tokenizer_init."
             )
         if constants.model_parallel_rank() != 0:
-            dist.barrier(group=constants.model_parallel_group())
+            dist.barrier(group=constants.model_parallel_cpu_group())
             return None, None, None
 
         results = asyncio.run(
@@ -363,12 +363,12 @@ class SGLangGenerationEngine(PipelinableEngine):
                 gconfig=gconfig,
             )
         )
-        dist.barrier(group=constants.model_parallel_group())
+        dist.barrier(group=constants.model_parallel_cpu_group())
         return results
 
     def update_weights_from_disk(self, path):
         if constants.model_parallel_rank() != 0:
-            dist.barrier(group=constants.model_parallel_group())
+            dist.barrier(group=constants.model_parallel_cpu_group())
             return
 
         async def _fn():
@@ -379,7 +379,7 @@ class SGLangGenerationEngine(PipelinableEngine):
                 await client.async_update_weights_from_disk(path)
 
         asyncio.run(_fn())
-        dist.barrier(group=constants.model_parallel_group())
+        dist.barrier(group=constants.model_parallel_cpu_group())
 
 
 @dataclasses.dataclass

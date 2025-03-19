@@ -175,10 +175,10 @@ class ReaLModel(nn.Module):
         self.contiguous_param = None
 
         self.hf_model_family = hf_model_family
-    
+
     def save_to_hf(self, tokenizer, save_dir):
         return getattr(self, f"to_{self.hf_model_family}")(tokenizer, save_dir)
-    
+
     def load_from_hf(self, load_dir):
         return getattr(self, f"from_{self.hf_model_family}")(load_dir)
 

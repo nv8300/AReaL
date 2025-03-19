@@ -24,7 +24,6 @@ import numpy as np
 import pynvml
 import tabulate
 import torch
-import torch.distributed
 import torch.distributed as dist
 import torch.utils.data
 
@@ -761,7 +760,7 @@ class ModelWorker(worker_base.Worker):
             or self.__enable_memory_dump
         ):
             torch.cuda.synchronize()
-            torch.distributed.barrier(group=constants.parallelism_group())
+            dist.barrier(group=constants.cpu_parallelism_group())
             # pfer can be a null context if enable_profiler is False
             pfer = get_pytorch_profiler(
                 kernel_only=False, enabled=self.__enable_profiler
@@ -780,7 +779,7 @@ class ModelWorker(worker_base.Worker):
                 or self.__enable_memory_dump
             ):
                 pfer.__exit__(None, None, None)
-                torch.distributed.barrier(group=constants.parallelism_group())
+                dist.barrier(group=constants.cpu_parallelism_group())
                 torch.cuda.synchronize()
                 tok = time.perf_counter()
                 rpc_time = tok - tik
@@ -913,7 +912,7 @@ class ModelWorker(worker_base.Worker):
                     eval_scores.update(scores)
 
                 res.metadata.pop("scores")
-        dist.barrier(group=constants.parallelism_group())
+        dist.barrier(group=constants.cpu_parallelism_group())
         if len(eval_scores) > 0 and self._dp_rank == 0 and self._is_dp_head:
             with open(
                 eval_scores_path,
@@ -949,7 +948,7 @@ class ModelWorker(worker_base.Worker):
         self._clear_memory()
         if constants.use_cuda():
             torch.cuda.synchronize()
-        dist.barrier(group=constants.parallelism_group())
+        dist.barrier(group=constants.cpu_parallelism_group())
         return res
 
     @cuda_tmark("data_transfer", CUDATimeMarkType.comm)
@@ -991,7 +990,7 @@ class ModelWorker(worker_base.Worker):
             with constants.model_scope(from_model_name):
                 from_model_ranks = constants.parallelism_group_ranks()
             if not param_realloc_comm.is_trainable(from_model_name):
-                if torch.distributed.get_rank() not in from_model_ranks:
+                if dist.get_rank() not in from_model_ranks:
                     return
                 if not isinstance(self.__unwrapped_models[from_model_name], ReaLModel):
                     # We can only release the memory of ReaLModel,
@@ -1017,7 +1016,7 @@ class ModelWorker(worker_base.Worker):
                     save_dir=realloc_dir,
                 )
                 self.__save_model(save_meta)
-            g = self.__param_realloc_info.param_realloc_model_group[
+            g = self.__param_realloc_info.param_realloc_model_cpu_group[
                 param_realloc_comm.ParamReallocModelPair(from_model_name, to_model_name)
             ]
             dist.barrier(group=g)
@@ -1029,7 +1028,7 @@ class ModelWorker(worker_base.Worker):
                 self.__load_model(load_meta)
                 # Remove the reallocated checkpoint.
                 with constants.model_scope(to_model_name):
-                    dist.barrier(constants.parallelism_group())
+                    dist.barrier(constants.cpu_parallelism_group())
                     if constants.parallelism_rank() == 0:
                         shutil.rmtree(realloc_dir, ignore_errors=True)
                         os.makedirs(realloc_dir, exist_ok=True)
@@ -1097,7 +1096,7 @@ class ModelWorker(worker_base.Worker):
                             ).is_symlink():
                                 os.unlink(save_root / fn)
                     shutil.rmtree(save_dir, ignore_errors=True)
-            dist.barrier(constants.parallelism_group())
+            dist.barrier(constants.cpu_parallelism_group())
             self._interface.save(self._model, save_dir)
             # The `save` method of the interface may be empty.
             # We only save the backend state if the parameters have been indeed saved.
