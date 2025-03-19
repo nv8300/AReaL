@@ -268,6 +268,23 @@ class MemoryNameRecordRepository(NameRecordRepository):
 
 class NfsNameRecordRepository(NameRecordRepository):
     RECORD_ROOT = f"{cluster_spec.fileroot}/name_resolve/"
+    LOCK_FILE = f"{cluster_spec.fileroot}/name_resolve/LOCK"
+    os.makedirs(RECORD_ROOT, exist_ok=True)
+
+    @staticmethod
+    def locked(fn: Callable) -> Callable:
+        def fn_(*args, **kwargs):
+            import fcntl
+
+            with open(NfsNameRecordRepository.LOCK_FILE, "w") as fd:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                try:
+                    res = fn(*args, **kwargs)
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            return res
+
+        return fn_
 
     def __init__(self, **kwargs):
         self.__to_delete = set()
@@ -280,6 +297,7 @@ class NfsNameRecordRepository(NameRecordRepository):
     def __file_path(name):
         return os.path.join(NfsNameRecordRepository.__dir_path(name), "ENTRY")
 
+    @locked
     def add(
         self,
         name,
@@ -299,6 +317,7 @@ class NfsNameRecordRepository(NameRecordRepository):
         if delete_on_exit:
             self.__to_delete.add(name)
 
+    @locked
     def delete(self, name):
         path = self.__file_path(name)
         if not os.path.isfile(path):
@@ -322,12 +341,22 @@ class NfsNameRecordRepository(NameRecordRepository):
         else:
             logger.info("No such name resolve path: %s", dir_path)
 
+    @locked
     def get(self, name):
         path = self.__file_path(name)
         if not os.path.isfile(path):
             raise NameEntryNotFoundError(path)
-        with open(path, "r") as f:
-            return f.read().strip()
+        for _ in range(100):
+            # HACK: dealing with the possible OSError: Stale file handle
+            try:
+                with open(path, "r") as f:
+                    return f.read().strip()
+            except OSError as e:
+                if e.errno == 116:
+                    time.sleep(5e-3)
+                    continue
+                raise e
+        raise RuntimeError("Failed to read value for %s" % name)
 
     def get_subtree(self, name_root):
         dir_path = self.__dir_path(name_root)
