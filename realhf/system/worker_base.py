@@ -1,7 +1,7 @@
 # Copyright 2025 Ant Group Inc.
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
-
+import asyncio
 import dataclasses
 import enum
 import os
@@ -547,6 +547,18 @@ class Worker:
         """Implemented by sub-classes."""
         raise NotImplementedError()
 
+    @property
+    def running(self):
+        return self.__running
+
+    @property
+    def exiting(self):
+        return self.__exiting
+
+    @property
+    def is_configured(self):
+        return self.__is_configured
+
     def configure(
         self,
         worker_info: system_api.WorkerInformation,
@@ -625,10 +637,11 @@ class Worker:
     def _exit_hook(self, exit_status: WorkerServerStatus):
         logger.warning(f"Exit with {exit_status}, hook not implemented, pass.")
 
-    def exit(self):
+    def exit(self, err: bool = False):
         self.logger.info("Exiting worker")
-        self._exit_hook(WorkerServerStatus.COMPLETED)
-        self.__set_status(WorkerServerStatus.COMPLETED)
+        status = WorkerServerStatus.ERROR if err else WorkerServerStatus.COMPLETED
+        self._exit_hook(status)
+        self.__set_status(status)
         self.__exiting = True
 
     def interrupt(self):
@@ -681,8 +694,7 @@ class Worker:
             logger.error(f"Worker encountered error {e}", exc_info=True)
             if isinstance(e, WorkerException):
                 raise e
-            self.__set_status(WorkerServerStatus.ERROR)
-            self._exit_hook(WorkerServerStatus.ERROR)
+            self.exit(err=True)
             raise e
 
     def __host_key(self, key: str):
@@ -692,6 +704,32 @@ class Worker:
     def __watch_keys(self, keys: List[str]):
         self.logger.info(f"Watching keys: {keys}")
         name_resolve.watch_names(keys, call_back=self.exit)
+
+
+class AsyncWorker(Worker):
+    async def _poll_async(self) -> PollResult:
+        raise NotImplementedError()
+
+    async def run_async(self):
+        self.logger.debug("Running worker now")
+        try:
+            while not self.exiting:
+                await asyncio.sleep(0.0)
+                self._server.handle_requests()
+                if not self.running:
+                    await asyncio.sleep(0.05)
+                    continue
+                if not self.is_configured:
+                    raise RuntimeError("Worker is not configured")
+                r = await self._poll_async()
+        except KeyboardInterrupt:
+            self.exit()
+        except Exception as e:
+            logger.error(f"Worker encountered error {e}", exc_info=True)
+            if isinstance(e, WorkerException):
+                raise e
+            self.exit(err=True)
+            raise e
 
 
 class MappingThread:

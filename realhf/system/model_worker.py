@@ -35,6 +35,8 @@ from realhf.base import (
     constants,
     gpu_utils,
     logging,
+    name_resolve,
+    names,
     network,
     recover,
     seeding,
@@ -374,7 +376,8 @@ class ModelWorker(worker_base.Worker):
                                 constants.MODEL_SAVE_ROOT,
                                 constants.experiment_name(),
                                 constants.trial_name(),
-                                f"dataset_indices_{self._dp_rank}.npy",
+                                "dataset_indices",
+                                f"{self._dp_rank}.npy",
                             )
                             if os.path.exists(dataset_indices_path):
                                 indices = np.load(dataset_indices_path).tolist()
@@ -455,8 +458,8 @@ class ModelWorker(worker_base.Worker):
         self.__request_cache = {}
         self.__ack_cache = {}
 
-        self.__request_queue = queue.Queue(maxsize=8)
-        self.__reply_queue = queue.Queue(maxsize=8)
+        self.__request_queue = queue.Queue(maxsize=10240)
+        self.__reply_queue = queue.Queue(maxsize=10240)
         self.__request_sample_size = dict()
 
         self.__compute_input_queues = {
@@ -467,6 +470,13 @@ class ModelWorker(worker_base.Worker):
             )
             for model_name in self.__models.keys()
         }
+
+        # By intention, must be smaller than -1.
+        self._last_param_realloc_step = -100
+        if self.__recover_run:
+            self._last_param_realloc_step = (
+                self.__recover_info.last_step_info.global_step
+            )
 
     def __handle_one_rpc_hook(self, hook: str, hook_data: Any):
         ret = None
@@ -579,8 +589,10 @@ class ModelWorker(worker_base.Worker):
                     constants.MODEL_SAVE_ROOT,
                     constants.experiment_name(),
                     constants.trial_name(),
-                    f"dataset_indices_{dp_rank}.npy",
+                    "dataset_indices",
+                    f"{dp_rank}.npy",
                 )
+                os.makedirs(os.path.dirname(dataset_indices_path), exist_ok=True)
                 if hasattr(self.__dataset, "filter") and os.path.exists(
                     eval_scores_path
                 ):
@@ -624,9 +636,6 @@ class ModelWorker(worker_base.Worker):
             res = data_api.DataBatchMeta(
                 dp_rank=dp_rank,
                 meta_sample=meta_sample,
-                is_final_batch=(
-                    self.__dataset_batch_counter == len(self.__dataloader) - 1
-                ),
             )
         elif request.handle_name == "spec":
             # Raw dataset without filtering.
@@ -735,6 +744,31 @@ class ModelWorker(worker_base.Worker):
                     assert request.handle_name == "train_step", request.handle_name
                     assert isinstance(res, dict), res
                     res.update({f"eval_{k}": v for k, v in ret.items()})
+
+        # update param realloc step after handling post hooks
+        if request.handle_name == "train_step":
+            self._last_param_realloc_step = max(self._last_param_realloc_step + 1, 1)
+            realloc_dir = os.path.join(
+                constants.PARAM_REALLOC_PATH,
+                constants.experiment_name(),
+                constants.trial_name(),
+                model_name.role,
+            )
+            save_meta = dict(
+                model_name=model_name,
+                save_backend=False,
+                save_dir=realloc_dir,
+            )
+            self.__save_model(save_meta)
+            name = names.model_version(
+                self.__experiment_name,
+                self.__trial_name,
+                model_name.role,
+            )
+            with constants.model_scope(model_name):
+                dist.barrier(group=constants.parallelism_group())
+                if constants.parallelism_rank() == 0:
+                    name_resolve.add_subentry(name, str(self._last_param_realloc_step))
 
         self.__reply_queue.put_nowait((request, res))
         sample_count = data.bs if isinstance(data, data_api.SequenceSample) else 1
@@ -1163,11 +1197,12 @@ class ModelWorker(worker_base.Worker):
     @cuda_tmark("post_response", CUDATimeMarkType.misc)
     def maybe_post_responses(self):
         ready_to_post = []
-        try:
-            request, res = self.__reply_queue.get_nowait()
-            ready_to_post.append((request, res))
-        except queue.Empty:
-            pass
+        while True:
+            try:
+                request, res = self.__reply_queue.get_nowait()
+                ready_to_post.append((request, res))
+            except queue.Empty:
+                break
 
         batch_size = sample_size = 0
         for request, res in ready_to_post:

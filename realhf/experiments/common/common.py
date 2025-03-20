@@ -718,16 +718,6 @@ class CommonExperimentConfig(Experiment):
                     )
                 else:
                     backend = make_inf_backend_config(model_cfg, rpc_alloc.parallel)
-                if any(rpc.is_generate() for rpc in rpcs) and backend.type_ not in [
-                    "vllm",
-                    "sglang",
-                ]:
-                    raise ValueError(
-                        "vLLM or SGLang is not enabled for generation. "
-                        "This behavior has been deprecated. "
-                        "Please set model.vllm.hybrid_train=True "
-                        "or model.sglang.hybrid_train=True."
-                    )
 
                 if mapping[i, j]:
                     shard_idx = shard_counter[model_name]
