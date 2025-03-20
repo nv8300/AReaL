@@ -132,6 +132,65 @@ class vLLMConfig:
 
 
 @dataclasses.dataclass
+class SGLangConfig:
+    disable_cuda_graph: bool = False
+    disable_radix_cache: bool = False
+    disable_jump_forward: bool = False
+    disable_cuda_graph_padding: bool = False
+    enable_nccl_nvls: bool = False
+    disable_outlines_disk_cache: bool = False
+    disable_custom_all_reduce: bool = False
+    disable_mla: bool = False
+    disable_overlap_schedule: bool = False
+    enable_mixed_chunk: bool = False
+    enable_dp_attention: bool = False
+    enable_ep_moe: bool = False
+    enable_torch_compile: bool = False
+    torch_compile_max_bs: int = 32
+    cuda_graph_max_bs: Optional[int] = None
+    cuda_graph_bs: Optional[List[int]] = None
+    torchao_config: str = ""
+    enable_nan_detection: bool = False
+    enable_p2p_check: bool = False
+    triton_attention_reduce_in_fp32: bool = False
+    triton_attention_num_kv_splits: int = 8
+    num_continuous_decode_steps: int = 1
+    enable_memory_saver: bool = False
+    allow_auto_truncate: bool = False
+    return_hidden_states: bool = False
+    # NOTE: to avoid the illegal memory access error
+    attention_backend: Optional[str] = "triton"
+    sampling_backend: Optional[str] = None
+    context_length: Optional[int] = None
+    mem_fraction_static: Optional[float] = None
+    max_running_requests: Optional[int] = None
+    max_total_tokens: Optional[int] = None
+    chunked_prefill_size: Optional[int] = None
+    max_prefill_tokens: int = 16384
+    schedule_policy: str = "lpm"
+    schedule_conservativeness: float = 1.0
+    cpu_offload_gb: int = 0
+    hybrid_train: bool = False
+
+
+@dataclasses.dataclass
+class DistributedDataParallelConfig:
+    """Configuration for Megatron DistributedDataParallel.
+    Some default options have been overwritten.
+    """
+
+    grad_reduce_in_fp32: bool = False
+    overlap_grad_reduce: bool = True
+    overlap_param_gather: bool = False
+    align_param_gather: bool = False
+    use_distributed_optimizer: bool = True
+    check_for_nan_in_grad: bool = False
+    bucket_size: Optional[int] = None
+    average_in_collective: bool = False
+    fp8_param_gather: bool = False
+
+
+@dataclasses.dataclass
 class MegatronConfig:
     """When using the DistributedOptimizer of Megatron, parameters and
     gradients will not be splitted across DP ranks, but optimizer states will
@@ -177,12 +236,11 @@ class MegatronConfig:
     make it functionally correct. The DeepSpeed code is too hard to read and modify.
     """
 
-    overlap_grad_reduce: bool = True
-    overlap_param_gather: bool = False
-    accumulate_allreduce_grads_in_fp32: bool = False
-
-    # addtional args
-    additional_config: Dict = dataclasses.field(default_factory=dict)
+    ddp: DistributedDataParallelConfig = dataclasses.field(
+        default_factory=DistributedDataParallelConfig
+    )
+    # Don't use MegatronOptimizerConfig here because OmegaConf
+    # does not recognize the annotation "torch.dtype"
 
 
 @dataclasses.dataclass
@@ -233,6 +291,7 @@ class ModelTrainEvalConfig:
     )
     megatron: MegatronConfig = dataclasses.field(default_factory=MegatronConfig)
     vllm: vLLMConfig = dataclasses.field(default_factory=vLLMConfig)
+    sglang: SGLangConfig = dataclasses.field(default_factory=SGLangConfig)
     init_from_scratch: bool = False
     init_critic_from_actor: bool = False
 

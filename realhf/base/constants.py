@@ -80,6 +80,7 @@ TRITON_CACHE_PATH = f"{LOCAL_CACHE_DIR}/.cache/{getpass.getuser()}/triton"
 DATASET_CACHE_PATH = f"{cluster_spec.fileroot}/.cache/{getpass.getuser()}/datasets"
 PROFILER_CACHE_PATH = f"{cluster_spec.fileroot}/.cache/{getpass.getuser()}/profiler"
 PARAM_REALLOC_PATH = f"{cluster_spec.fileroot}/.cache/{getpass.getuser()}/param_realloc"
+SGLANG_CACHE_PATH = f"{cluster_spec.fileroot}/.cache/{getpass.getuser()}/sglang"
 TORCH_EXTENSIONS_DIR = (
     f"{cluster_spec.fileroot}/.cache/{getpass.getuser()}/torch/extensions"
 )
@@ -165,6 +166,7 @@ os.makedirs(DATASET_CACHE_PATH, exist_ok=True)
 os.makedirs(PROFILER_CACHE_PATH, exist_ok=True)
 os.makedirs(TORCH_EXTENSIONS_DIR, exist_ok=True)
 os.makedirs(QUICKSTART_EXPR_CACHE_PATH, exist_ok=True)
+os.makedirs(SGLANG_CACHE_PATH, exist_ok=True)
 
 # _model_name will be changed in the model_scope context manager
 _model_name: "ModelName" = None
@@ -175,6 +177,9 @@ _trial_name = None
 
 _grids: Dict["ModelName", "ParallelGrid"] = {}
 _pgroups: Dict["ModelName", Any] = (
+    {}
+)  # torch.distributed.ProcessGroup, not type hint here to avoid importing torch
+_cpu_pgroups: Dict["ModelName", Any] = (
     {}
 )  # torch.distributed.ProcessGroup, not type hint here to avoid importing torch
 _pgroup_ranks: Dict["ModelName", List[int]] = {}
@@ -257,6 +262,13 @@ def set_parallelism_group(model_name: "ModelName", pgroup, ranks):
         raise RuntimeError(f"Parallelism group for model {model_name} is already set.")
     _pgroups[model_name] = pgroup
     _pgroup_ranks[model_name] = ranks
+
+
+def set_cpu_parallelism_group(model_name: "ModelName", pgroup):
+    global _cpu_pgroups
+    if model_name in _cpu_pgroups:
+        raise RuntimeError(f"Parallelism group for model {model_name} is already set.")
+    _cpu_pgroups[model_name] = pgroup
 
 
 def set_self_group(pgroup):
@@ -382,6 +394,15 @@ def parallelism_group():
     return _pgroups[_model_name]
 
 
+def cpu_parallelism_group():
+    """Returns the GLOO 3D parallelism group of a specific model."""
+    if _model_name is None:
+        raise RuntimeError("Global constant `model_name` is accessed before set.")
+    if _cpu_pgroups.get(_model_name, None) is None:
+        raise RuntimeError(f"Parallelism group for model {_model_name} is not set.")
+    return _cpu_pgroups[_model_name]
+
+
 def parallelism_group_ranks():
     if _model_name is None:
         raise RuntimeError("Global constant `model_name` is accessed before set.")
@@ -449,6 +470,10 @@ def prev_pipe_stage():
     return (
         pipe_parallel_world_size() + pipe_parallel_rank() - 1
     ) % pipe_parallel_world_size()
+
+
+def is_dp_head():
+    return is_last_pipe_stage() and model_parallel_rank() == 0
 
 
 def model_parallel_rank() -> int:

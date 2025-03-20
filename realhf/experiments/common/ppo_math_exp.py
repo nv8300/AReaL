@@ -90,6 +90,7 @@ class PPOHyperparameters:
     eps_clip: float = 0.2
     value_eps_clip: float = 0.2
     disable_value: bool = False
+    recompute_logprob: bool = False
     max_reward_clip: float = 20.0
     reward_output_scaling: float = 1.0
     reward_output_bias: float = 0.0
@@ -189,15 +190,14 @@ class PPOMATHConfig(CommonExperimentConfig):
         default_factory=ModelTrainEvalConfig
     )
     ref: ModelTrainEvalConfig = dataclasses.field(default_factory=ModelTrainEvalConfig)
-    rew: ModelTrainEvalConfig = dataclasses.field(default_factory=ModelTrainEvalConfig)
 
     # for manual allocation only
     actor_train: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     critic_train: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     actor_gen: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     critic_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    rew_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     ref_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
+    actor_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
 
     dataset: PromptOnlyDatasetConfig = dataclasses.field(
         default_factory=PromptOnlyDatasetConfig
@@ -248,30 +248,27 @@ class PPOMATHConfig(CommonExperimentConfig):
     @property
     def models(self) -> Dict[str, ModelTrainEvalConfig]:
         # role to config
+        models = {
+            "actor": self.actor,
+            "critic": self.critic,
+            "ref": self.ref,
+        }
         if self.ppo.disable_value:
-            return {
-                "actor": self.actor,
-                # "critic": self.critic,
-                "ref": self.ref,
-                # "reward": self.rew,
-            }
-        else:
-            return {
-                "actor": self.actor,
-                "critic": self.critic,
-                "ref": self.ref,
-                "reward": self.rew,
-            }
+            models.pop("critic")
+        return models
 
     @property
     def rpcs(self):
         if (
-            self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens
+            (self._allocation_mode.is_decoupled_vllm() or self.actor.vllm.hybrid_train)
+            and self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens
             > self.actor.vllm.max_seq_len_to_capture
+            and not self.actor.vllm.enforce_eager
         ):
             raise RuntimeError(
                 f"vllm max seq len to capture {self.actor.vllm.max_seq_len_to_capture} is "
-                f"smaller than the prompt length + generation length {self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens}"
+                f"smaller than the prompt length + generation length "
+                f"{self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens}"
             )
         if not os.path.exists(os.getenv("REAL_MATH_METADATA_PATH")):
             raise RuntimeError(
@@ -334,6 +331,14 @@ class PPOMATHConfig(CommonExperimentConfig):
                 + 128,
             ),
         )
+        rollout_output_keys = [
+            "seq_no_eos_mask",
+            "packed_input_ids",
+            "packed_logprobs",
+            "prompt_mask",
+        ]
+        if self.ppo.recompute_logprob:
+            rollout_output_keys.remove("packed_logprobs")
         rollout = MFCDef(
             name="actor_gen",
             model_name="actor",
@@ -343,32 +348,27 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_path=self.actor.path,
             interface_impl=actor_interface,
             input_keys=["packed_prompts"],
-            output_keys=[
-                "seq_no_eos_mask",
-                "packed_input_ids",
-                "packed_logprobs",
-                "prompt_mask",
-            ],
+            output_keys=rollout_output_keys,
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
-        inf_reward = MFCDef(
-            name="rew_inf",
-            model_name="reward",
-            mb_spec=self.rew_inf.mb_spec,
+        actor_inf = MFCDef(
+            name="actor_inf",
+            model_name="actor",
+            mb_spec=self.actor_inf.mb_spec,
             interface_type=ModelInterfaceType.INFERENCE,
-            interface_impl=rw_interface,
-            model_type=self.rew.type,
-            model_path=self.rew.path,
-            min_n_seqs_per_pass=1 / self.group_size,
-            input_keys=["packed_input_ids", "packed_prompts"],
-            output_keys=["rewards", "dense_rewards"],
+            model_type=self.actor.type,
+            model_path=self.actor.path,
+            interface_impl=actor_interface,
+            input_keys=["packed_input_ids"],
+            output_keys=["packed_logprobs"],
+            output_key_remap=dict(logprobs="packed_logprobs"),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
         # add rew param into ref MFC
         inf_ref_inputs = ["packed_input_ids", "packed_prompts"]
-        inf_ref_outputs = ["packed_ref_logprobs", "rewards", "dense_rewards"]
+        inf_ref_outputs = ["logprobs", "rewards", "dense_rewards"]
         ref_interface = copy.deepcopy(actor_interface)
         ref_interface.type_ = "ref_rw"
         ref_interface.args["enable_save"] = False
@@ -385,6 +385,7 @@ class PPOMATHConfig(CommonExperimentConfig):
             min_n_seqs_per_pass=1 / self.group_size,
             input_keys=inf_ref_inputs,
             output_keys=inf_ref_outputs,
+            output_key_remap=dict(logprobs="packed_ref_logprobs"),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
@@ -450,47 +451,40 @@ class PPOMATHConfig(CommonExperimentConfig):
             min_n_seqs_per_pass=self.ppo.ppo_n_minibatches / self.group_size,
             n_seqs=self.dataset.train_bs_n_seqs,
         )
+
+        rpcs = {
+            "actor_gen": rollout,
+            "actor_train": train_actor,
+            "critic_inf": inf_values,
+            "critic_train": train_critic,
+            "ref_inf": inf_ref_logits,
+            "actor_inf": actor_inf,
+            "rew_inf": inf_reward,
+        }
         if self.ppo.disable_value:
-            return {
-                "actor_gen": rollout,
-                "actor_train": train_actor,
-                # "critic_inf": inf_values,
-                # "critic_train": train_critic,
-                # "ref_inf": inf_ref_logits,
-                # "rew_inf": inf_reward,
-                "ref_rw": inf_ref_logits,
-            }
-        else:
-            return {
-                "actor_gen": rollout,
-                "actor_train": train_actor,
-                "critic_inf": inf_values,
-                "critic_train": train_critic,
-                "ref_inf": inf_ref_logits,
-                "rew_inf": inf_reward,
-            }
+            rpcs.pop("critic_inf")
+            rpcs.pop("critic_train")
+        if not self.ppo.recompute_logprob:
+            rpcs.pop("actor_inf")
+        return rpcs
 
     @property
     def allocations(self):
+        allocs = {
+            "actor_gen": self.actor_gen,
+            "actor_train": self.actor_train,
+            "critic_inf": self.critic_inf,
+            "critic_train": self.critic_train,
+            "ref_inf": self.ref_inf,
+            "actor_inf": self.actor_inf,
+            "rew_inf": self.rew_inf,
+        }
         if self.ppo.disable_value:
-            return {
-                "actor_gen": self.actor_gen,
-                "actor_train": self.actor_train,
-                # "critic_inf": self.critic_inf,
-                # "critic_train": self.critic_train,
-                # "ref_inf": self.ref_inf,
-                # "rew_inf": self.rew_inf,
-                "ref_rw": self.ref_inf,
-            }
-        else:
-            return {
-                "actor_gen": self.actor_gen,
-                "actor_train": self.actor_train,
-                "critic_inf": self.critic_inf,
-                "critic_train": self.critic_train,
-                "ref_inf": self.ref_inf,
-                "rew_inf": self.rew_inf,
-            }
+            allocs.pop("critic_inf")
+            allocs.pop("critic_train")
+        if not self.ppo.recompute_logprob:
+            allocs.pop("actor_inf")
+        return allocs
 
     @property
     def datasets(self):

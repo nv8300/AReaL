@@ -60,3 +60,7 @@ def distributed_local_peer(experiment_name, trial_name, host_name, model_name):
 
 def distributed_master(experiment_name, trial_name, model_name):
     return f"{USER_NAMESPACE}/{experiment_name}/{trial_name}/distributed/master/{model_name}"
+
+
+def model_version(experiment_name, trial_name, model_name):
+    return f"{USER_NAMESPACE}/{experiment_name}/{trial_name}/model_version/{model_name}"

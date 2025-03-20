@@ -110,32 +110,40 @@ def make_inf_backend_config(
 def resolve_replica_ids(
     rpc_allocs: List[RPCAllocation], models: Dict[str, ModelTrainEvalConfig]
 ):
-    role_cnt = collections.defaultdict(int)
-    first_device_mesh = dict()
-    first_parallel = dict()
-    first_rpc = dict()
+    role_rpcs = collections.defaultdict(list)
     for alloc in rpc_allocs:
         rpc = alloc.rpc
-        if rpc.role not in first_device_mesh:
-            first_device_mesh[rpc.role] = alloc.device_mesh
-            first_parallel[rpc.role] = alloc.parallel
-            first_rpc[rpc.role] = rpc
+        role_rpcs[rpc.role].append(alloc)
+
+    for role, allocs in role_rpcs.items():
+        cnt = len(allocs)
+        if cnt == 1:
+            allocs[0].rpc.model_name = ModelName(role, 0)
             continue
-        model_cfg = models[rpc.role]
-        if (rpc.is_train() and first_rpc[rpc.role].is_generate()) or (
-            rpc.is_generate() and first_rpc[rpc.role].is_train()
-        ):
-            if model_cfg.vllm.hybrid_train:
-                role_cnt[rpc.role] += 1
-                rpc.model_name = ModelName(rpc.role, role_cnt[rpc.role])
+        rpcs = [alloc.rpc for alloc in allocs]
+        if any(rpc.is_train() for rpc in rpcs):
+            main_alloc = next(alloc for alloc in allocs if alloc.rpc.is_train())
+        elif any(rpc.is_inference() for rpc in rpcs):
+            main_alloc = next(alloc for alloc in allocs if alloc.rpc.is_inference())
+        else:
+            main_alloc = allocs[0]
+        main_alloc.rpc.model_name = ModelName(role, 0)
+        i = 1
+        for alloc in allocs:
+            if alloc.rpc.name == main_alloc.rpc.name:
                 continue
-        if alloc.device_mesh != first_device_mesh[rpc.role] or not parallelism_eq(
-            alloc.parallel, first_parallel[rpc.role]
-        ):
-            role_cnt[rpc.role] += 1
-            rpc.model_name = ModelName(rpc.role, role_cnt[rpc.role])
-            continue
-        assert rpc.model_name.replica_id == 0
+            same_alloc = alloc.device_mesh == main_alloc.device_mesh and parallelism_eq(
+                alloc.parallel, main_alloc.parallel
+            )
+            if not same_alloc or (
+                alloc.rpc.is_generate()
+                and main_alloc.rpc.is_train()
+                and (models[role].vllm.hybrid_train or models[role].sglang.hybrid_train)
+            ):
+                alloc.rpc.model_name = ModelName(role, i)
+                i += 1
+            else:
+                alloc.rpc.model_name = ModelName(role, 0)
 
 
 def resolve_rpc_hooks(
@@ -207,6 +215,7 @@ class AllocationType(enum.Enum):
     HEURISTIC = 4
     SEARCH = 5
     DECOUPLED_SGLANG = 6
+    DECOUPLED_MOCK = 7
 
 
 @dataclasses.dataclass
@@ -218,6 +227,7 @@ class AllocationMode:
         return self.type_ in [
             AllocationType.DECOUPLED_vLLM,
             AllocationType.DECOUPLED_SGLANG,
+            AllocationType.DECOUPLED_MOCK,
         ]
 
     def is_decoupled_vllm(self):
@@ -225,6 +235,9 @@ class AllocationMode:
 
     def is_decoupled_sglang(self):
         return self.type_ == AllocationType.DECOUPLED_SGLANG
+
+    def is_decoupled_mock(self):
+        return self.type_ == AllocationType.DECOUPLED_MOCK
 
     def is_global_hybrid(self):
         return self.type_ == AllocationType.GLOBAL_HYBRID
@@ -246,6 +259,8 @@ class AllocationMode:
                 return cls(AllocationType.DECOUPLED_vLLM, alloc_decoupled)
             elif "sglang" in allocation_mode:
                 return cls(AllocationType.DECOUPLED_SGLANG, alloc_decoupled)
+            elif "mock" in allocation_mode:
+                return cls(AllocationType.DECOUPLED_MOCK, alloc_decoupled)
         if alloc_3d:
             return cls(AllocationType.GLOBAL_HYBRID, alloc_3d)
         if alloc_hybrid:
@@ -272,7 +287,7 @@ class AllocationMode:
     @staticmethod
     def extract_decoupled_alloc(allocation_mode: str) -> Dict | None:
         pattern = re.compile(
-            r"(?:(?:vllm|sglang)\.(.+?)\+(.+))|(?:(.+?)\+(?:vllm|sglang)\.(.+))"
+            r"(?:(?:vllm|sglang|mock)\.(.+?)\+(.+))|(?:(.+?)\+(?:vllm|sglang|mock)\.(.+))"
         )
         m = pattern.match(allocation_mode)
         if not m:

@@ -2,7 +2,7 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 
-import heapq
+import bisect
 import itertools
 from typing import Any, List, Tuple, Union
 
@@ -159,8 +159,9 @@ def _ffd_allocate(
     as possible.
 
     1. Sort the numbers in reverse order.
-    2. If the number of groups is less than, create a new group.
-    3. If the new number fits into the smallest group, add it into the group.
+    2. If the number of groups is less than `min_groups`, create a new group.
+    3. For a new number, find all groups with the capacity to hold the new number.
+       Put the new number into the group with the smallest size.
     4. Otherwise, create a new group.
     """
     value_indices = np.argsort(-values)
@@ -172,12 +173,17 @@ def _ffd_allocate(
             len(group_values) < min_groups
             or group_values[0][0] + values[idx] > capacity
         ):
-            heapq.heappush(group_values, (float(values[idx]), group_cnt))
+            bisect.insort(group_values, (float(values[idx]), group_cnt))
             group_indices.append([idx])
             group_cnt += 1
         else:
-            v, group_idx = heapq.heappop(group_values)
-            heapq.heappush(group_values, (float(v + values[idx]), group_idx))
+            i = bisect.bisect_right(group_values, (capacity - values[idx], len(values)))
+            candidates = [group_values[j][1] for j in range(i)]
+            lens = [len(group_indices[g]) for g in candidates]
+            j = np.argmin(lens)
+            v, group_idx = group_values.pop(j)
+            assert group_idx == candidates[j]
+            bisect.insort(group_values, (float(values[idx] + v), group_idx))
             group_indices[group_idx].append(idx)
     return group_indices
 

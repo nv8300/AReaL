@@ -52,7 +52,7 @@ class Payload:
     syn_reply_id: uuid.UUID = None
     ack_reply_id: uuid.UUID = None
 
-    no_syn: bool = False
+    no_syn: bool = True
 
     send_time: float = None
 
@@ -164,7 +164,7 @@ class NameResolvingRequestClient:
         datas: List[Any] | None = None,
         payloads: List[Payload] | None = None,
         verbose: bool = True,
-        no_syn: bool = False,
+        no_syn: bool = True,
     ) -> List[uuid.UUID]:
         """Send requests of type `handle_type` to all `handlers` with
         corresponding `data`.

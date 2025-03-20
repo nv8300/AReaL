@@ -1,8 +1,8 @@
 import functools
 import gc
+import json
 import os
 import pickle
-import json
 import time
 from typing import *
 
@@ -26,9 +26,9 @@ from realhf.api.core.model_api import ReaLModelConfig
 from realhf.base import constants, logging
 from realhf.base.network import find_free_port
 from realhf.base.testing import (
-    init_global_constants,
     _DEFAULT_EXPR_NAME,
     _DEFAULT_TRIAL_NAME,
+    init_global_constants,
 )
 
 logger = logging.getLogger("test async ref-rew")

@@ -24,7 +24,6 @@ import numpy as np
 import pynvml
 import tabulate
 import torch
-import torch.distributed
 import torch.distributed as dist
 import torch.utils.data
 
@@ -36,6 +35,8 @@ from realhf.base import (
     constants,
     gpu_utils,
     logging,
+    name_resolve,
+    names,
     network,
     recover,
     seeding,
@@ -375,7 +376,8 @@ class ModelWorker(worker_base.Worker):
                                 constants.MODEL_SAVE_ROOT,
                                 constants.experiment_name(),
                                 constants.trial_name(),
-                                f"dataset_indices_{self._dp_rank}.npy",
+                                "dataset_indices",
+                                f"{self._dp_rank}.npy",
                             )
                             if os.path.exists(dataset_indices_path):
                                 indices = np.load(dataset_indices_path).tolist()
@@ -456,8 +458,8 @@ class ModelWorker(worker_base.Worker):
         self.__request_cache = {}
         self.__ack_cache = {}
 
-        self.__request_queue = queue.Queue(maxsize=8)
-        self.__reply_queue = queue.Queue(maxsize=8)
+        self.__request_queue = queue.Queue(maxsize=10240)
+        self.__reply_queue = queue.Queue(maxsize=10240)
         self.__request_sample_size = dict()
 
         self.__compute_input_queues = {
@@ -468,6 +470,13 @@ class ModelWorker(worker_base.Worker):
             )
             for model_name in self.__models.keys()
         }
+
+        # By intention, must be smaller than -1.
+        self._last_param_realloc_step = -100
+        if self.__recover_run:
+            self._last_param_realloc_step = (
+                self.__recover_info.last_step_info.global_step
+            )
 
     def __handle_one_rpc_hook(self, hook: str, hook_data: Any):
         ret = None
@@ -580,8 +589,10 @@ class ModelWorker(worker_base.Worker):
                     constants.MODEL_SAVE_ROOT,
                     constants.experiment_name(),
                     constants.trial_name(),
-                    f"dataset_indices_{dp_rank}.npy",
+                    "dataset_indices",
+                    f"{dp_rank}.npy",
                 )
+                os.makedirs(os.path.dirname(dataset_indices_path), exist_ok=True)
                 if hasattr(self.__dataset, "filter") and os.path.exists(
                     eval_scores_path
                 ):
@@ -625,9 +636,6 @@ class ModelWorker(worker_base.Worker):
             res = data_api.DataBatchMeta(
                 dp_rank=dp_rank,
                 meta_sample=meta_sample,
-                is_final_batch=(
-                    self.__dataset_batch_counter == len(self.__dataloader) - 1
-                ),
             )
         elif request.handle_name == "spec":
             # Raw dataset without filtering.
@@ -737,6 +745,31 @@ class ModelWorker(worker_base.Worker):
                     assert isinstance(res, dict), res
                     res.update({f"eval_{k}": v for k, v in ret.items()})
 
+        # update param realloc step after handling post hooks
+        if request.handle_name == "train_step":
+            self._last_param_realloc_step = max(self._last_param_realloc_step + 1, 1)
+            realloc_dir = os.path.join(
+                constants.PARAM_REALLOC_PATH,
+                constants.experiment_name(),
+                constants.trial_name(),
+                model_name.role,
+            )
+            save_meta = dict(
+                model_name=model_name,
+                save_backend=False,
+                save_dir=realloc_dir,
+            )
+            self.__save_model(save_meta)
+            name = names.model_version(
+                self.__experiment_name,
+                self.__trial_name,
+                model_name.role,
+            )
+            with constants.model_scope(model_name):
+                dist.barrier(group=constants.parallelism_group())
+                if constants.parallelism_rank() == 0:
+                    name_resolve.add_subentry(name, str(self._last_param_realloc_step))
+
         self.__reply_queue.put_nowait((request, res))
         sample_count = data.bs if isinstance(data, data_api.SequenceSample) else 1
         self.__request_sample_size[request.request_id] = sample_count
@@ -761,7 +794,7 @@ class ModelWorker(worker_base.Worker):
             or self.__enable_memory_dump
         ):
             torch.cuda.synchronize()
-            torch.distributed.barrier(group=constants.parallelism_group())
+            dist.barrier(group=constants.cpu_parallelism_group())
             # pfer can be a null context if enable_profiler is False
             pfer = get_pytorch_profiler(
                 kernel_only=False, enabled=self.__enable_profiler
@@ -780,7 +813,7 @@ class ModelWorker(worker_base.Worker):
                 or self.__enable_memory_dump
             ):
                 pfer.__exit__(None, None, None)
-                torch.distributed.barrier(group=constants.parallelism_group())
+                dist.barrier(group=constants.cpu_parallelism_group())
                 torch.cuda.synchronize()
                 tok = time.perf_counter()
                 rpc_time = tok - tik
@@ -799,6 +832,17 @@ class ModelWorker(worker_base.Worker):
                     self.__performance_recorder["time"] = [rpc_time]
                 else:
                     self.__performance_recorder["time"].append(rpc_time)
+
+                with open(
+                    os.path.join(
+                        self._get_setup_logdir("performance"),
+                        f"rpc-mw{self.__worker_index}.txt",
+                    ),
+                    "a",
+                ) as f:
+                    f.write(
+                        f"rpc: {rpc.name} rank: {dist.get_rank()} time: {rpc_time}\n"
+                    )
 
             if self.__enable_profiler:
                 if self._dp_rank == 0 and self._is_dp_head:
@@ -902,7 +946,7 @@ class ModelWorker(worker_base.Worker):
                     eval_scores.update(scores)
 
                 res.metadata.pop("scores")
-        dist.barrier(group=constants.parallelism_group())
+        dist.barrier(group=constants.cpu_parallelism_group())
         if len(eval_scores) > 0 and self._dp_rank == 0 and self._is_dp_head:
             with open(
                 eval_scores_path,
@@ -938,7 +982,7 @@ class ModelWorker(worker_base.Worker):
         self._clear_memory()
         if constants.use_cuda():
             torch.cuda.synchronize()
-        dist.barrier(group=constants.parallelism_group())
+        dist.barrier(group=constants.cpu_parallelism_group())
         return res
 
     @cuda_tmark("data_transfer", CUDATimeMarkType.comm)
@@ -980,7 +1024,7 @@ class ModelWorker(worker_base.Worker):
             with constants.model_scope(from_model_name):
                 from_model_ranks = constants.parallelism_group_ranks()
             if not param_realloc_comm.is_trainable(from_model_name):
-                if torch.distributed.get_rank() not in from_model_ranks:
+                if dist.get_rank() not in from_model_ranks:
                     return
                 if not isinstance(self.__unwrapped_models[from_model_name], ReaLModel):
                     # We can only release the memory of ReaLModel,
@@ -1006,7 +1050,7 @@ class ModelWorker(worker_base.Worker):
                     save_dir=realloc_dir,
                 )
                 self.__save_model(save_meta)
-            g = self.__param_realloc_info.param_realloc_model_group[
+            g = self.__param_realloc_info.param_realloc_model_cpu_group[
                 param_realloc_comm.ParamReallocModelPair(from_model_name, to_model_name)
             ]
             dist.barrier(group=g)
@@ -1018,7 +1062,7 @@ class ModelWorker(worker_base.Worker):
                 self.__load_model(load_meta)
                 # Remove the reallocated checkpoint.
                 with constants.model_scope(to_model_name):
-                    dist.barrier(constants.parallelism_group())
+                    dist.barrier(constants.cpu_parallelism_group())
                     if constants.parallelism_rank() == 0:
                         shutil.rmtree(realloc_dir, ignore_errors=True)
                         os.makedirs(realloc_dir, exist_ok=True)
@@ -1086,7 +1130,7 @@ class ModelWorker(worker_base.Worker):
                             ).is_symlink():
                                 os.unlink(save_root / fn)
                     shutil.rmtree(save_dir, ignore_errors=True)
-            dist.barrier(constants.parallelism_group())
+            dist.barrier(constants.cpu_parallelism_group())
             self._interface.save(self._model, save_dir)
             # The `save` method of the interface may be empty.
             # We only save the backend state if the parameters have been indeed saved.
@@ -1153,11 +1197,12 @@ class ModelWorker(worker_base.Worker):
     @cuda_tmark("post_response", CUDATimeMarkType.misc)
     def maybe_post_responses(self):
         ready_to_post = []
-        try:
-            request, res = self.__reply_queue.get_nowait()
-            ready_to_post.append((request, res))
-        except queue.Empty:
-            pass
+        while True:
+            try:
+                request, res = self.__reply_queue.get_nowait()
+                ready_to_post.append((request, res))
+            except queue.Empty:
+                break
 
         batch_size = sample_size = 0
         for request, res in ready_to_post:

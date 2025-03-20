@@ -684,7 +684,6 @@ class SequenceSample:
 class DataBatchMeta:
     dp_rank: int
     meta_sample: SequenceSample | None
-    is_final_batch: bool
 
 
 @dataclasses.dataclass

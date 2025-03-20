@@ -179,12 +179,14 @@ class MockTrainEngine(model_api.PipelinableEngine):
         self,
         input_: SequenceSample,
         mb_spec: MicroBatchSpec,
+        output_seqlens: List[List[int]] | None = None,
         post_hook: Callable[[torch.Tensor, SequenceSample], Any] | None = None,
         aggregate_fn: Callable[[List[Any]], Any] = torch.cat,
     ):
         return self.inf_engine.forward(
             input_=input_,
             mb_spec=mb_spec,
+            output_seqlens=output_seqlens,
             post_hook=post_hook,
             aggregate_fn=aggregate_fn,
         )

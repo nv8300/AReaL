@@ -136,6 +136,8 @@ def setup_global_comm(
     for model_name, ranks in mw_ranks.items():
         model_groups[model_name] = topology.new_or_get_group(ranks, backend=backend)
         constants.set_parallelism_group(model_name, model_groups[model_name], ranks)
+        cpu_group = topology.new_or_get_group(ranks, backend="gloo")
+        constants.set_cpu_parallelism_group(model_name, cpu_group)
 
     self_group = None
     for i in range(world_size):

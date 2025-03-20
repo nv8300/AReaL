@@ -444,13 +444,13 @@ class PPOActorInterface(model_api.ModelInterface):
         )
 
         res = SequenceSample(
-            keys=["packed_ref_logprobs"],
+            keys=["logprobs"],
             ids=input_.ids,
-            dtypes=dict(packed_ref_logprobs=model.module.dtype),
-            trailing_shapes=dict(packed_ref_logprobs=()),
-            data=dict(packed_ref_logprobs=logprobs),
+            dtypes=dict(logprobs=model.module.dtype),
+            trailing_shapes=dict(logprobs=()),
+            data=dict(logprobs=logprobs),
             seqlens=dict(
-                packed_ref_logprobs=[
+                logprobs=[
                     [x - 1 for x in slen] for slen in input_.seqlens["packed_input_ids"]
                 ]
             ),

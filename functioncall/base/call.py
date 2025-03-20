@@ -13,7 +13,6 @@ from functioncall.base import logging
 
 logger = logging.getLogger("Functioncall")
 
-
 FUNCTIONCALL_SERVICE_DOMAIN = os.getenv(
     "FUNCTIONCALL_SERVICE_DOMAIN",
     "",
@@ -31,8 +30,8 @@ async def async_invoke_function(
     function_name: str,
     timeout: aiohttp.ClientTimeout,
     payload: Dict[str, Any] = None,
-    max_retries: int = 3,
-    initial_retry_interval: float = 0.1,
+    max_retries: int = 100,
+    initial_retry_interval: float = 0.5,
     max_retry_interval: float = 10.0,
 ):
     if payload is None:
@@ -63,7 +62,7 @@ async def async_invoke_function(
 
         except asyncio.TimeoutError as e:
             logger.warning(
-                f"Request timeout after {timeout}s, URL: {url}, Headers: {session.headers}, payload: {payload}"
+                f"Request timeout after {timeout}s, URL: {url}, Headers: {session.headers}"
             )
             break
 
@@ -85,7 +84,7 @@ async def async_invoke_function(
 
 
 async def batch_function_call_async(
-    payload_list, function_name, timeout, concurrency=1000
+    payload_list, function_name, timeout, concurrency=1500
 ):
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -120,7 +119,7 @@ async def batch_function_call_async(
         p90 = calculate_percentile(elapsed_times, 90)
         p99 = calculate_percentile(elapsed_times, 99)
         logger.info(
-            f"Longest functioncall took {max_elapsed:.4f} seconds, header: {max_elapsed_header}, p50: {p50}, p90: {p90}, p99: {p99}"
+            f"Longest functioncall {function_name} took {max_elapsed:.4f} seconds, header: {max_elapsed_header}, timeout: {timeout}, p50: {p50}, p90: {p90}, p99: {p99}"
         )
 
         return data_list
@@ -129,19 +128,21 @@ async def batch_function_call_async(
 def get_function_name(runtime_type):
     if runtime_type == "python_code":
         return "realhf_code_verify"
+    if runtime_type == "python_live_code_bench":
+        return "python_live_code_bench"
     elif runtime_type == "python_math":
-        return "realhf_math_verify"
+        return "python_math"
     return "empty_code"
 
 
-def batch_function_call(payload_list, runtime_type, timeout=30):
+def batch_function_call(payload_list, runtime_type, timeout):
     start_time = time.time()
     function_name = get_function_name(runtime_type)
     result = asyncio.run(
         batch_function_call_async(payload_list, function_name, timeout)
     )
     execution_time = time.time() - start_time
-    logger.debug(
+    logger.info(
         f"Batch function call done, runtime type: {runtime_type}, batch size: {len(payload_list)}, cost: {execution_time * 1000:.0f} ms"
     )
     return result

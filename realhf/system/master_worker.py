@@ -85,7 +85,11 @@ class MasterWorker(worker_base.Worker):
             and config.exp_ctrl.ckpt_freq_steps is None
             and config.exp_ctrl.ckpt_freq_secs is None
         ):
-            self.__ckpt_ctl = self.__save_ctl
+            self.__ckpt_ctl = timeutil.EpochStepTimeFreqCtl(
+                freq_epoch=config.exp_ctrl.save_freq_epochs,
+                freq_step=config.exp_ctrl.save_freq_steps,
+                freq_sec=config.exp_ctrl.save_freq_secs,
+            )
         else:
             self.__ckpt_ctl = timeutil.EpochStepTimeFreqCtl(
                 freq_epoch=config.exp_ctrl.ckpt_freq_epochs,
