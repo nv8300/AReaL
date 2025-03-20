@@ -8,6 +8,7 @@ import os
 import random
 import time
 from contextlib import contextmanager
+from enum import Enum
 
 # NOTE: We don't sue wildcard importing here because the type
 # `Sequence` has a very similar name to `SequenceSample`.
@@ -42,6 +43,8 @@ from realhf.base import constants, datapack, logging
 from realhf.base.cluster import spec as cluster_spec
 
 logger = logging.getLogger("api.data")
+
+RL_TASKS = ["math", "code", "rlhf"]
 
 
 def load_hf_tokenizer(
@@ -529,6 +532,7 @@ class SequenceSample:
             "rewards",
             "greedy_rewards",
             "base_scores",
+            "task_ids",
         ]:
             return [[1] for _ in seqlens]
         elif key in [
