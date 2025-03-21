@@ -18,12 +18,12 @@ def capture_stdout(code):
     fake_stdout = StringIO()
 
     try:
-        sys.stdout = fake_stdout  # 重定向输出
-        exec(code, {"__builtins__": __builtins__})  # 在隔离环境中执行
+        sys.stdout = fake_stdout
+        exec(code, {"__builtins__": __builtins__})
     except Exception as e:
         return f"error: {str(e)}, traceback: {traceback.format_exc()}"
     finally:
-        sys.stdout = original_stdout  # 恢复原stdout
+        sys.stdout = original_stdout
     return fake_stdout.getvalue()
 
 
@@ -33,12 +33,17 @@ def _temp_run(problem, generation, debug, result):
     try:
         if debug:
             logger.debug(f"Running test for problem: {problem}")
-        result.append(run_test(sample=problem, test=generation, debug=debug))
+        r = run_test(sample=problem, test=generation, debug=debug)
+        result.append(r)
         if debug:
             logger.debug(f"Test completed with result: {result}")
     except Exception as e:
-        if debug:
-            logger.error(f"Error in _temp_run: {e}, problem:{problem}")
+
+        logger.warning(
+            f"Error in _temp_run: {e}\n"
+            f"traceback: {''.join(traceback.format_exception(*sys.exc_info()))}\n"
+            f"problem:{problem}"
+        )
 
     execution_time = time.time() - start_time
     logger.info(
@@ -51,6 +56,7 @@ def check_correctness(problem, generation, timeout, debug=False):
     The global timeout is to catch some extreme/rare cases not handled by the timeouts
     inside `run_test`"""
     if debug:
+        # FIXME: error variable "problem" is not defined
         result = capture_stdout(
             "from functioncall.code.function.testing_util import run_test\n"
             + "run_test(sample=problem, test=generation, debug=debug)"
@@ -73,7 +79,7 @@ def check_correctness(problem, generation, timeout, debug=False):
         # Remark: ideally we would consider that all tests failed but we can't access number of tests here easily
         # so we use 21=the average number of tests for a smaple in the test split instead
         avg_number_tests = 21
-        result = [[-1, ""] for _ in range(avg_number_tests)]
+        result = [[-1 for _ in range(avg_number_tests)], {}]
         if debug:
             logger.debug(f"Global timeout occurred, returning default result.")
     if debug:
@@ -86,7 +92,7 @@ def check_correctness(problem, generation, timeout, debug=False):
     return result[0]
 
 
-def code_verify(id2info, generateds, query_ids, debug=True):
+def code_verify(id2info, generateds, query_ids, debug=False):
     assert len(generateds) == len(query_ids)
     problems = [id2info[qid] for qid in query_ids]
 
@@ -117,19 +123,25 @@ def code_verify(id2info, generateds, query_ids, debug=True):
 
 
 if __name__ == "__main__":
-    path = "/storage/openpsi/data/code/apps/codeparrot-apps-test.jsonl"
+    path = "/storage/openpsi/data/code/apps/test.jsonl"
     data = []
     with open(path, "r") as f:
         code_data = [json.loads(l) for l in f.readlines()]
 
-    problem = code_data[0]
-    problem["problem_id"] = problem["id"]
-    id2info = {problem["problem_id"]: problem}
+    id2info = {}
+    solutions = []
+    query_ids = []
+    for i in range(10):
+        problem = code_data[i]
+        problem["problem_id"] = problem["id"]
+        id2info[problem["problem_id"]] = problem
+        solutions.append(json.loads(problem["solutions"])[0])
+        query_ids.append(problem["id"])
 
     result = code_verify(
         id2info,
-        [json.loads(problem["solutions"])[0]],
-        [problem["problem_id"]],
+        solutions,
+        query_ids,
         debug=False,
     )
     print(result)

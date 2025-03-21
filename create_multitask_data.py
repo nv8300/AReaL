@@ -2,14 +2,16 @@ import json
 import random
 
 data = []
-with open("/storage/openpsi/data/code/apps/codeparrot-apps-test.jsonl", "r") as f:
+with open("/storage/openpsi/data/code/apps/test.jsonl", "r") as f:
     code_data = [json.loads(l) for l in f.readlines()]
 
 original_keys = list(code_data[0].keys())
 print(original_keys)
 for d in code_data:
-    print(d["starter_code"], type(d["starter_code"]))
+    # print(d["starter_code"], type(d["starter_code"]))
     # print(json.loads(d["solutions"])[0])
+    inout = json.loads(d["input_output"])
+    print(dict(inputs=inout["inputs"][:2], outputs=inout["outputs"][:2]))
     exit(0)
     d["query_id"] = d["id"]
     d["prompt"] = d["question"]

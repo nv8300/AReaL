@@ -29,7 +29,7 @@ from realhf.api.core.data_api import (
 )
 from realhf.base import constants
 from realhf.base.datapack import flat2d
-from realhf.impl.dataset.math_code_dataset import id2info
+from realhf.impl.dataset.math_code_dataset import load_metadata
 from realhf.impl.dataset.math_parser import parse_lines_in_parallel as math_verify_local
 
 logger = logging.getLogger("Packed Reward Modeling Interface", "benchmark")
@@ -121,6 +121,9 @@ def check_with_elementtree(text):
         return False, f"Error: XML格式错误, {str(e)}"
 
 
+id2info = {}
+
+
 def dispatch_reward_calculation(task, answers, query_id_strs) -> List:
     global id2info
     assert len(answers) == len(query_id_strs)
@@ -176,6 +179,7 @@ def retokenize_and_verify(
 
 @dataclasses.dataclass
 class MultiTaskRewardInterface(model_api.ModelInterface):
+    dataset_path: str = ""
     tokenizer_path: str = "/storage/models/Qwen__Qwen2.5-1.5B"
     output_scaling: float = 1.0
     output_bias: float = 0.0
@@ -185,6 +189,8 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
     check_verifier_status: bool = False
 
     def __post_init__(self):
+        global id2info
+        id2info = load_metadata(self.dataset_path)
         self.tokenizer = load_hf_tokenizer(self.tokenizer_path)
         if constants.parallelism_rank() == 0:
             logger.info(f"output_scaling: {self.output_scaling}")
@@ -197,7 +203,6 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
         dispatched_indices = {}
         for task_idx, task_name in enumerate(RL_TASKS):
             indices = (data.data["task_ids"] == task_idx).numpy().nonzero()[0].tolist()
-            print("============", task_idx, task_name, indices)
             if len(indices) > 0:
                 dispatched[task_name] = SequenceSample.gather([xs[i] for i in indices])
                 dispatched_indices[task_name] = indices
@@ -209,7 +214,6 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
     ) -> SequenceSample:
         xs = [None for _ in range(bs)]
         for task_name, indices in dispatched_indices.items():
-            print(task_name, indices)
             xxs = results[task_name].unpack()
             assert len(indices) == len(xxs), (len(indices), len(xxs))
             for i, xx in zip(indices, xxs):
@@ -361,8 +365,8 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
                     + "\n"
                 )
 
-        logger.info(f"number of samples: {len(scores)}, {scores.shape}")
-        logger.info(f"reward: {sum(scores) / len(scores)}")
+        logger.info(f"[{task_type}] number of samples: {len(scores)}, {scores.shape}")
+        logger.info(f"[{task_type}] avg reward: {sum(scores) / len(scores)}")
 
     def inference(
         self,
@@ -371,8 +375,6 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
         mb_spec: MicroBatchSpec,
     ) -> SequenceSample | None:
         task_data, dispatch_indices = self._dispatch_tasks(data)
-        for d in task_data.values():
-            print(d.bs)
 
         assert self.rw_type == "sparse"
 
@@ -423,7 +425,6 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
         model: model_api.Model,
         data: SequenceSample,
     ) -> SequenceSample:
-        from realhf.base.testing import TESTING_MODEL_VOCAB_SIZE
 
         prompt_lens = flat2d(data.seqlens["packed_prompts"])
         task_ids = data.data["task_ids"].cpu().numpy().tolist()
@@ -435,11 +436,11 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
             offset += plen
             if task_id == RL_TASKS.index("math"):
                 answer_str = (
-                    "something unimportant but the answer is \\boxed{-\\frac{2}{3}}"
+                    "something unimportant but the answer is \\boxed{-\\frac{2}{3}}."
                 )
             elif task_id == RL_TASKS.index("code"):
                 answer_str = (
-                    "```python\ninput()\nprint(1)\nprint(1)\nprint(1)\nprint(1)\n```"
+                    "```python\ninput()\nimport time\ntime.sleep(1e-3)\nprint(1)\n```"
                 )
             else:
                 answer_str = "something unimportant"

@@ -35,10 +35,10 @@ def math_code_dataset(request, save_path):
                 prompt=generate_random_sentence(prompt_len),
                 problem_id=str(uuid.uuid4()),
                 input_output=json.dumps(
-                    {"inputs": [1] * 8, "outputs": ["1\n1\n1\n1\n"] * 8}
+                    {"inputs": ["1\n"] * 8, "outputs": ["1\n"] * 8}
                 ),
                 solutions=json.dumps(
-                    ["```python\ninput()\nprint(1)\nprint(1)\nprint(1)\nprint(1)\n```"]
+                    ["```python\ninput()\nimport time\ntime.sleep(1e-3)\nprint(1)\n```"]
                     * 3
                 ),
                 difficulty=random.random() * 10,
@@ -48,8 +48,8 @@ def math_code_dataset(request, save_path):
                 task="math",
                 query_id=str(uuid.uuid4()),
                 prompt=generate_random_sentence(prompt_len),
-                answers=["-\\frac{2}{3}"],
-                solutions=["-\\frac{2}{3}"],
+                answers=["\\boxed{-\\frac{2}{3}}"],
+                solutions=["\\boxed{-\\frac{2}{3}}"],
             )
         dataset.append(d)
     with open(str(save_path / "math_code_dataset.jsonl"), "w") as f:
@@ -90,6 +90,7 @@ def test_multi_task_reward_interface(save_path, tokenizer_path, math_code_datase
 
     with constants.model_scope(testing.MODEL_NAME):
         interface = MultiTaskRewardInterface(
+            dataset_path=str(save_path / "math_code_dataset.jsonl"),
             tokenizer_path=tokenizer_path,
             group_size=1,
             check_verifier_status=False,
@@ -108,4 +109,5 @@ def test_multi_task_reward_interface(save_path, tokenizer_path, math_code_datase
             d = interface.mock("inference", model, d)
             rewards = interface.inference(model, d, mb_spec=MicroBatchSpec())
             d.update_(rewards)
-        print("success")
+            assert rewards.data["rewards"].all(), rewards.data["rewards"]
+        dist.destroy_process_group()

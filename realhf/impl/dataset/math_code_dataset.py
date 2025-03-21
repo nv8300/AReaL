@@ -17,10 +17,12 @@ id2info = {}
 
 
 def check_code_metadata_entries(data):
+    # TODO: check test multi task reward
     pass
 
 
 def check_math_metadata_entries(data):
+    # TODO: check test multi task reward
     pass
 
 
