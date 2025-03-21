@@ -9,28 +9,9 @@ from functioncall.base.call import batch_function_call
 logger = logging.getLogger("Functioncall")
 
 
-def loadJson(dataDir):
-    with open(dataDir, "r") as f:
-        if dataDir.endswith(".jsonl"):
-            samples = [json.loads(line) for line in f.readlines()]
-        else:
-            samples = json.load(f)
-
-    return samples
-
-
-id2info = None
-
-
-def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=1000) -> List:
-    global id2info
-    if id2info is None:
-        id2info = loadJson(
-            os.getenv(
-                "REAL_MATH_MEATADATA_PATH",
-                "/storage/datasets/id2info.json",
-            )
-        )
+def math_verify(
+    id2info, generateds: List, query_ids: List, batch_size=10, timeout=1000
+) -> List:
     assert len(generateds) == len(query_ids), (
         len(generateds),
         len(query_ids),
@@ -95,27 +76,19 @@ def math_verify(generateds: List, query_ids: List, batch_size=10, timeout=1000) 
 
 
 if __name__ == "__main__":
-    # sample = {
-    #     "prompt": "",
-    #     "query_id": "fe11b471-1aa9-4867-958f-a0a811c85f92",
-    #     "answer": "\\boxed{-\\frac{1}{30}}",
-    # }
-
-    if id2info is None:
-        id2info = loadJson(
-            os.getenv(
-                "REAL_MATH_MEATADATA_PATH",
-                "/storage/datasets/id2info.json",
-            )
-        )
-
-    answers = []
-    query_ids = []
-
-    for id, value in id2info.items():
-        answers.append(value["solutions"][0])
-        query_ids.append(id)
+    sample = {
+        "answers": ["-\\frac{2}{3}"],
+        "solutions": [
+            "1. **Apply the operation $\\otimes$ to the innermost parentheses first:**\n   \\[\n   (1 \\otimes 2) \\otimes 3 = \\left(\\frac{1^2}{2}\\right) \\otimes 3 = \\frac{1}{2} \\otimes 3\n   \\]\n   \\[\n   1 \\otimes (2 \\otimes 3) = 1 \\otimes \\left(\\frac{2^2}{3}\\right) = 1 \\otimes \\frac{4}{3}\n   \\]\n\n2. **Calculate each part using the definition of $\\otimes$:**\n   \\[\n   \\frac{1}{2} \\otimes 3 = \\frac{\\left(\\frac{1}{2}\\right)^2}{3} = \\frac{\\frac{1}{4}}{3} = \\frac{1}{12}\n   \\]\n   \\[\n   1 \\otimes \\frac{4}{3} = \\frac{1^2}{\\frac{4}{3}} = \\frac{1}{\\frac{4}{3}} = \\frac{3}{4}\n   \\]\n\n3. **Subtract the two results:**\n   \\[\n   \\left(\\frac{1}{12}\\right) - \\left(\\frac{3}{4}\\right) = \\frac{1}{12} - \\frac{9}{12} = -\\frac{8}{12} = -\\frac{2}{3}\n   \\]\n\n4. **Conclude with the final answer:**\n   \\[\n   \\boxed{A}\n   \\]",
+            "\\boxed{-\\frac{2}{3}}",
+        ],
+    }
+    id2info = {"fe11b471-1aa9-4867-958f-a0a811c85f92": sample}
 
     start_time = time.time()
-    result = math_verify(answers[:200], query_ids[:200])
+    result = math_verify(
+        id2info,
+        sample["answers"] * 100,
+        ["fe11b471-1aa9-4867-958f-a0a811c85f92" for _ in range(100)],
+    )
     print(result)

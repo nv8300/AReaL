@@ -7,8 +7,6 @@ import os
 import pprint
 from typing import *
 
-from omegaconf import DictConfig, OmegaConf
-
 import realhf.base.logging as logging
 from realhf.api.core.config import (
     DatasetAbstraction,
@@ -21,7 +19,7 @@ from realhf.api.core.system_api import ExperimentConfig
 from realhf.api.quickstart.dataset import PromptOnlyDatasetConfig
 from realhf.api.quickstart.device_mesh import MFCConfig
 from realhf.api.quickstart.entrypoint import register_quickstart_exp
-from realhf.api.quickstart.model import ModelTrainEvalConfig
+from realhf.api.quickstart.model import ModelTrainEvalConfig, ParallelismConfig
 from realhf.experiments.common.common import CommonExperimentConfig
 from realhf.experiments.common.utils import (
     asdict,
@@ -89,8 +87,6 @@ class PPOHyperparameters:
     gae_lambda: float = 1.0
     eps_clip: float = 0.2
     value_eps_clip: float = 0.2
-    disable_value: bool = False
-    recompute_logprob: bool = False
     max_reward_clip: float = 20.0
     reward_output_scaling: float = 1.0
     reward_output_bias: float = 0.0
@@ -103,6 +99,10 @@ class PPOHyperparameters:
     )
     value_norm_beta: float = 0.99995
     value_norm_eps: float = 1e-5
+
+    disable_value: bool = False
+    recompute_logprob: bool = False
+    fuse_rew_ref: bool = True
 
 
 @dataclasses.dataclass
@@ -197,6 +197,7 @@ class PPOMATHConfig(CommonExperimentConfig):
     actor_gen: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     critic_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     ref_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
+    rew_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     actor_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
 
     dataset: PromptOnlyDatasetConfig = dataclasses.field(
@@ -208,15 +209,11 @@ class PPOMATHConfig(CommonExperimentConfig):
     group_size: int = 1
     generation_size: Optional[int] = None
     mask_no_eos_with_zero: bool = False
-    rm_output_scaling: Optional[float] = None
     ref_ema_eta: Optional[float] = None
     group_adv_norm: bool = False
     mask_too_long: bool = False
     rw_type: Optional[str] = "sparse"
-    task: str = "math"
     check_xml_format: bool = False
-    use_dense_reward: bool = False
-    reward_delta: bool = True
 
     check_verifier_status: bool = False
 
@@ -241,9 +238,6 @@ class PPOMATHConfig(CommonExperimentConfig):
             disable_value=self.ppo.disable_value,
             mask_no_eos_with_zero=self.mask_no_eos_with_zero,
         )
-
-        if self.rm_output_scaling is None:
-            self.rm_output_scaling = self.ppo.reward_output_scaling
 
     @property
     def models(self) -> Dict[str, ModelTrainEvalConfig]:
@@ -270,10 +264,6 @@ class PPOMATHConfig(CommonExperimentConfig):
                 f"smaller than the prompt length + generation length "
                 f"{self.dataset.max_prompt_len + self.ppo.gen.max_new_tokens}"
             )
-        if not os.path.exists(os.getenv("REAL_MATH_METADATA_PATH")):
-            raise RuntimeError(
-                "Dataset json path REAL_MATH_METADATA_PATH does not exist."
-            )
 
         domain = os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", "")
         if domain and (not (domain.startswith("http://") and ":" in domain)):
@@ -297,8 +287,6 @@ class PPOMATHConfig(CommonExperimentConfig):
                 "generation_size": self.generation_size,
                 "group_adv_norm": self.group_adv_norm,
                 "mask_too_long": self.mask_too_long,
-                "use_dense_reward": self.use_dense_reward,
-                "reward_delta": self.reward_delta,
             },
         )
 
@@ -308,29 +296,30 @@ class PPOMATHConfig(CommonExperimentConfig):
                 **copy.deepcopy(self.ppo_kwargs),
                 "group_size": self.group_size,
                 "mask_too_long": self.mask_too_long,
-                "use_dense_reward": self.use_dense_reward,
-                "reward_delta": self.reward_delta,
             },
         )
         critic_interface.args.pop("eps_clip")
         rw_interface = ModelInterfaceAbstraction(
             "reward",
             args=dict(
-                rw_type=self.rw_type,
-                task=self.task,
-                check_xml_format=self.check_xml_format,
                 tokenizer_path=self.actor.path,
-                enable_save=False,
                 output_scaling=self.ppo.reward_output_scaling,
-                rm_output_scaling=self.rm_output_scaling,
                 output_bias=self.ppo.reward_output_bias,
+                rw_type=self.rw_type,
+                check_xml_format=self.check_xml_format,
                 group_size=self.group_size,
                 check_verifier_status=self.check_verifier_status,
-                max_sync_length=self.ppo.gen.max_new_tokens
-                + self.dataset.max_prompt_len
-                + 128,
             ),
         )
+
+        ref_interface = copy.deepcopy(actor_interface)
+        ref_interface.args["enable_save"] = False
+        if self.ppo.fuse_rew_ref:
+            ref_interface = ModelInterfaceAbstraction(
+                "fused-threading",
+                args=dict(interfaces=dict(rew=rw_interface, ref=ref_interface)),
+            )
+
         rollout_output_keys = [
             "seq_no_eos_mask",
             "packed_input_ids",
@@ -366,13 +355,23 @@ class PPOMATHConfig(CommonExperimentConfig):
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
+        inf_reward = MFCDef(
+            name="rew_inf",
+            model_name="reward",
+            interface_type=ModelInterfaceType.INFERENCE,
+            interface_impl=rw_interface,
+            min_n_seqs_per_pass=1 / self.group_size,
+            input_keys=["packed_input_ids", "packed_prompts"],
+            output_keys=["rewards"],
+            n_seqs=self.dataset.train_bs_n_seqs,
+        )
+
         # add rew param into ref MFC
-        inf_ref_inputs = ["packed_input_ids", "packed_prompts"]
-        inf_ref_outputs = ["logprobs", "rewards", "dense_rewards"]
-        ref_interface = copy.deepcopy(actor_interface)
-        ref_interface.type_ = "ref_rw"
-        ref_interface.args["enable_save"] = False
-        ref_interface.args["rew_inf_args"] = copy.deepcopy(rw_interface.args)
+        inf_ref_inputs = ["packed_input_ids"]
+        inf_ref_outputs = ["logprobs"]
+        if self.ppo.fuse_rew_ref:
+            inf_ref_inputs += ["packed_prompts"]
+            inf_ref_outputs += ["rewards"]
 
         inf_ref_logits = MFCDef(
             name="ref_rw",
@@ -408,7 +407,6 @@ class PPOMATHConfig(CommonExperimentConfig):
             "packed_logprobs",
             "packed_ref_logprobs",
             "rewards",
-            "dense_rewards",
             "values",
             "prompt_mask",
             "seq_no_eos_mask",
@@ -442,7 +440,6 @@ class PPOMATHConfig(CommonExperimentConfig):
                 "packed_logprobs",
                 "packed_ref_logprobs",
                 "rewards",
-                "dense_rewards",
                 "values",
                 "prompt_mask",
                 "seq_no_eos_mask",
@@ -466,6 +463,8 @@ class PPOMATHConfig(CommonExperimentConfig):
             rpcs.pop("critic_train")
         if not self.ppo.recompute_logprob:
             rpcs.pop("actor_inf")
+        if self.ppo.fuse_rew_ref:
+            rpcs.pop("rew_inf")
         return rpcs
 
     @property
@@ -484,13 +483,15 @@ class PPOMATHConfig(CommonExperimentConfig):
             allocs.pop("critic_train")
         if not self.ppo.recompute_logprob:
             allocs.pop("actor_inf")
+        if self.ppo.fuse_rew_ref:
+            allocs.pop("rew_inf")
         return allocs
 
     @property
     def datasets(self):
         return [
             DatasetAbstraction(
-                "math_prompt",
+                "math_code_prompt",
                 args=dict(
                     dataset_path=self.dataset.path,
                     max_length=self.dataset.max_prompt_len,

@@ -206,9 +206,9 @@ class LocalMultiProcessTest:
 
 
 def init_global_constants(
-    num_dp,
-    num_mp,
-    num_pp,
+    num_dp=1,
+    num_mp=1,
+    num_pp=1,
     topo=None,
     model_name=None,
     msid2mwid=None,
@@ -217,7 +217,12 @@ def init_global_constants(
     gradient_accumulation_fusion=False,
     max_prompt_len=None,
     is_train: bool = True,
+    expr_name=None,
+    trial_name=None,
 ):
+    expr_name = expr_name if expr_name is not None else _DEFAULT_EXPR_NAME
+    trial_name = trial_name if trial_name is not None else _DEFAULT_TRIAL_NAME
+    constants.set_experiment_trial_names(expr_name, trial_name)
     model_name = model_name if model_name is not None else MODEL_NAME
 
     if topo is None:

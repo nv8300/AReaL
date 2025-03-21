@@ -20,7 +20,6 @@ BASE_MODEL_PATH="/storage/models/${MODEL_NAME}"
 
 # original data
 DATA_PATH="/storage/datasets/${DATASET_NAME}"
-REAL_CODE_METADATA_PATH="/storage/datasets/codeparrot-apps-test.jsonl"
 
 # Option 1: The experiment runs locally with subprocesses.
 # MODE=local
@@ -55,7 +54,6 @@ TRIAL_NAME="${TRAIN_BATCH_SIZE}x${GROUP_SIZE}-n${NODES}"
 # It's the user's responsibility to tune them appropriately.
 unset CLUSTER_SPEC_PATH
 CLUSTER_SPEC_PATH=/storage/ray/cluster_config_on_ray.json \
-REAL_CODE_METADATA_PATH=${REAL_CODE_METADATA_PATH} \
 FUNCTIONCALL_SERVICE_DOMAIN="" \
 REAL_GPU_MEMORY_KILL_THRESHOLD=1 \
 python3 -m realhf.apps.quickstart ppo-code \

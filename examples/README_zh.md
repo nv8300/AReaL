@@ -315,7 +315,6 @@ python3 -m realhf.apps.quickstart ppo-math --show-args
 + MODE：总是为 ray，参考本教程进行训练时不要改成其他值。
 + BASE_MODEL_PATH：模型的路径
 + DATA_PATH：数据集 jsonl 文件的路径
-+ REAL_MATH_METADATA_PATH：设置成数学 metadata 的 json 文件路径，参考troubleshooting。
 + CLUSTER_SPEC_PATH：设置成 cluster_config.json 的路径
 
 + n_nodes：节点数量
@@ -530,8 +529,3 @@ ALL_PARAMS=(
 + 减小训练batch size或者每个prompt生成的答案数量，但减小后会降低样本效率、延长训练时间
 + [将vLLM的attention backend换成xformers](https://github.com/vllm-project/vllm/issues/5376)
 
-## 其他
-
-### 如何用其他数据集进行训练
-
-数据集需要是是 jsonl 格式的文件，其中每一条数据需要包含两个 key，分别是 prompt，即一道数学问题，和query_id，即这道数学问题的唯一标识符。在准备好数据集后，还需要根据数据集中的题目更新REAL_MATH_METADATA_PATH的内容。metadata 是一个 json 文件，记录了每道题目的答案、来源和解法。训练代码需要根据 metadata 来判断模型是否做对了一道题。

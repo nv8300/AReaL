@@ -18,6 +18,7 @@ import torch.distributed as dist
 
 import realhf.api.core.model_api as model_api
 import realhf.base.logging as logging
+from functioncall.code.local_verify import code_verify as local_code_verify
 from functioncall.code.verify import code_verify
 from functioncall.math.verify import math_verify
 from realhf.api.core.data_api import (
@@ -28,14 +29,14 @@ from realhf.api.core.data_api import (
 )
 from realhf.base import constants
 from realhf.base.datapack import flat2d
-from realhf.impl.model.interface.math_parser import (
-    parse_lines_in_parallel as math_verify_local,
-)
+from realhf.impl.dataset.math_code_dataset import id2info
+from realhf.impl.dataset.math_parser import parse_lines_in_parallel as math_verify_local
 
 logger = logging.getLogger("Packed Reward Modeling Interface", "benchmark")
 
 ENABLE_FUNCTION_CALL = True if os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", "") else False
 math_verify_call = math_verify if ENABLE_FUNCTION_CALL else math_verify_local
+code_verify_call = code_verify if ENABLE_FUNCTION_CALL else local_code_verify
 
 
 class VerifierException(Exception):
@@ -61,6 +62,7 @@ def extract_python_code(text, min_length=20, strict_syntax=True):
         valid_blocks.append(clean_block)
 
     if not valid_blocks:
+        logger.warning(f"failed to extract python code from {text}")
         return None
     # return the last code block
     return valid_blocks[-1]
@@ -120,14 +122,20 @@ def check_with_elementtree(text):
 
 
 def dispatch_reward_calculation(task, answers, query_id_strs) -> List:
+    global id2info
     assert len(answers) == len(query_id_strs)
     format_rewards = []
     if task == "math":
-        format_rewards = math_verify_call(answers, query_id_strs)
+        format_rewards = math_verify_call(id2info, answers, query_id_strs)
     elif task == "code":
         codes = [extract_python_code(_answer) for _answer in answers]
-        format_rewards = code_verify(codes, query_id_strs)
-    assert len(format_rewards) == len(answers), task
+        format_rewards = code_verify_call(id2info, codes, query_id_strs)
+    assert len(format_rewards) == len(answers), (
+        task,
+        len(format_rewards),
+        len(answers),
+        answers,
+    )
     return format_rewards
 
 
@@ -167,9 +175,8 @@ def retokenize_and_verify(
 
 
 @dataclasses.dataclass
-class MultiTaskCPURewardInterface(model_api.ModelInterface):
+class MultiTaskRewardInterface(model_api.ModelInterface):
     tokenizer_path: str = "/storage/models/Qwen__Qwen2.5-1.5B"
-    output_scaling: float = 1.0
     output_scaling: float = 1.0
     output_bias: float = 0.0
     rw_type: str = "sparse"
@@ -183,21 +190,15 @@ class MultiTaskCPURewardInterface(model_api.ModelInterface):
             logger.info(f"output_scaling: {self.output_scaling}")
             logger.info(f"output_bias: {self.output_bias}")
             logger.info(f"rw_type: {self.rw_type}")
-            if (
-                constants.data_parallel_world_size()
-                < constants.parallelism_group_size()
-            ):
-                logger.warning(
-                    "There's no reason to use tensor and pipeline parallelism for CPU reward."
-                )
 
     def _dispatch_tasks(self, data: SequenceSample) -> Tuple[Dict, Dict]:
         xs = data.unpack()
         dispatched = {}
         dispatched_indices = {}
         for task_idx, task_name in enumerate(RL_TASKS):
-            indices = (data.data["task_ids"] == task_idx).numpy().tolist()
-            if any(indices):
+            indices = (data.data["task_ids"] == task_idx).numpy().nonzero()[0].tolist()
+            print("============", task_idx, task_name, indices)
+            if len(indices) > 0:
                 dispatched[task_name] = SequenceSample.gather([xs[i] for i in indices])
                 dispatched_indices[task_name] = indices
 
@@ -208,7 +209,9 @@ class MultiTaskCPURewardInterface(model_api.ModelInterface):
     ) -> SequenceSample:
         xs = [None for _ in range(bs)]
         for task_name, indices in dispatched_indices.items():
+            print(task_name, indices)
             xxs = results[task_name].unpack()
+            assert len(indices) == len(xxs), (len(indices), len(xxs))
             for i, xx in zip(indices, xxs):
                 xs[i] = xx
         assert all(xs)
@@ -260,7 +263,7 @@ class MultiTaskCPURewardInterface(model_api.ModelInterface):
         self.log_rewards_to_file(task_type, model, prompt_strs, seq_strs, scores)
 
         # NOTE: a place holder
-        dense_scores = packed_input_ids.new_zeros(dtype=torch.float32)
+        dense_scores = torch.zeros_like(packed_input_ids, dtype=torch.float32)
 
         res = SequenceSample(
             keys=["rewards", "dense_rewards"],
@@ -368,6 +371,8 @@ class MultiTaskCPURewardInterface(model_api.ModelInterface):
         mb_spec: MicroBatchSpec,
     ) -> SequenceSample | None:
         task_data, dispatch_indices = self._dispatch_tasks(data)
+        for d in task_data.values():
+            print(d.bs)
 
         assert self.rw_type == "sparse"
 
@@ -377,11 +382,13 @@ class MultiTaskCPURewardInterface(model_api.ModelInterface):
                 try:
                     result = func(*args, **kwargs)
                 except Exception as e:
-                    raise asyncio.CancelledError(f"{task_type} task failed: {e}") from e
+                    raise asyncio.CancelledError(
+                        f"[{task_type}] task failed: {e}"
+                    ) from e
                 finally:
                     duration = time.perf_counter() - start_time
                     logger.info(f"[{task_type}] time cost: {duration:.4f}s")
-                return result
+                return task_type, result
 
             return _wrapped_func
 
@@ -391,11 +398,12 @@ class MultiTaskCPURewardInterface(model_api.ModelInterface):
                 task_func = _task_func(self.calculate_task_reward, task_type)
                 task_args = (model, d, mb_spec, task_type)
                 task = asyncio.create_task(asyncio.to_thread(task_func, *task_args))
-                tasks.append((task_type, task))
+                tasks.append(task)
 
-            task_results = {}
             results = await asyncio.gather(*tasks)
-            for task_type, result in results:
+            task_results = {}
+            for res in results:
+                task_type, result = res
                 task_results[task_type] = result
 
             return task_results
@@ -410,5 +418,46 @@ class MultiTaskCPURewardInterface(model_api.ModelInterface):
 
         return final_result
 
+    def _mock_inference(
+        self,
+        model: model_api.Model,
+        data: SequenceSample,
+    ) -> SequenceSample:
+        from realhf.base.testing import TESTING_MODEL_VOCAB_SIZE
 
-model_api.register_interface("reward", MultiTaskCPURewardInterface)
+        prompt_lens = flat2d(data.seqlens["packed_prompts"])
+        task_ids = data.data["task_ids"].cpu().numpy().tolist()
+        seqlens = []
+        offset = 0
+        seq = []
+        for plen, task_id in zip(prompt_lens, task_ids):
+            seq += [data.data["packed_prompts"][offset : offset + plen]]
+            offset += plen
+            if task_id == RL_TASKS.index("math"):
+                answer_str = (
+                    "something unimportant but the answer is \\boxed{-\\frac{2}{3}}"
+                )
+            elif task_id == RL_TASKS.index("code"):
+                answer_str = (
+                    "```python\ninput()\nprint(1)\nprint(1)\nprint(1)\nprint(1)\n```"
+                )
+            else:
+                answer_str = "something unimportant"
+            encoding = model.tokenizer(
+                [answer_str], add_special_tokens=True, return_attention_mask=False
+            )
+
+            ans = torch.tensor(encoding["input_ids"], dtype=torch.long).flatten()
+            seq += [ans]
+            seqlens.append(plen + len(ans))
+
+        x = SequenceSample.from_default(
+            seqlens=seqlens,
+            ids=data.ids,
+            data=dict(packed_input_ids=torch.cat(seq)),
+        )
+        data.update_(x)
+        return data
+
+
+model_api.register_interface("reward", MultiTaskRewardInterface)

@@ -67,35 +67,5 @@ class FusedThreadingForwardInterface(model_api.ModelInterface):
 
         return final_result
 
-    # Mock methods for profiling only.
-    def _mock_inference(
-        self,
-        model: model_api.Model,
-        data: SequenceSample,
-    ) -> SequenceSample:
-        prompt_lens = flat2d(data.seqlens["packed_prompts"])
-        seqlens = [x + 1024 for x in prompt_lens]
-        module = model.module
-        if not isinstance(module, ReaLModel):
-            module = module.module
-        mconfig = module.config
-        packed_input_ids = torch.randint(
-            0,
-            mconfig.vocab_size,
-            (sum(seqlens),),
-            dtype=torch.long,
-            device=model.device,
-        )
-        n_tasks = len(RL_TASKS)
-        task_ids = torch.randint(
-            0, n_tasks, (data.bs,), dtype=torch.long, device=model.device
-        )
-
-        return SequenceSample.from_default(
-            seqlens=seqlens,
-            ids=data.ids,
-            data=dict(packed_input_ids=packed_input_ids, task_ids=task_ids),
-        )
-
 
 model_api.register_interface("fused-threading", FusedThreadingForwardInterface)
