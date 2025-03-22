@@ -53,7 +53,7 @@ def math_code_dataset(request, save_path):
 @pytest.mark.parametrize(
     "dp,pp,mp",
     [
-        (1, 1, 1),
+        (2, 2, 1),
         # (2, 1, 2),
         # (1, 2, 1),
         # (1, 1, 2),
@@ -114,6 +114,7 @@ def test_ppo_symm(
                 use_cuda_graph=False,
             ),
         ),
+        group_size=2,
     )
 
     run_test_exp(exp_cfg)

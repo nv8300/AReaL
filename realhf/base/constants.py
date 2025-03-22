@@ -513,6 +513,10 @@ def tp_and_pp_group():
     return grid().get_model_parallel_group()
 
 
+def tp_and_pp_cpu_group():
+    return grid().ds_model_proc_group_gloo
+
+
 def tp_and_pp_rank():
     """Used as the rank in the world group of vLLM."""
     return grid().get_model_parallel_rank()
