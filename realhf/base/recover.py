@@ -105,6 +105,8 @@ def discover_ckpt(
         )
         model_ckpt_dirs = []
         for role in os.listdir(model_save_dir):
+            if "dataset_indices" in role:
+                continue
             if not os.path.isdir(model_save_dir / role):
                 continue
             ckpt_dir = (

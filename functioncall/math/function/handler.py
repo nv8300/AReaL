@@ -11,7 +11,11 @@ def process_results(answer, solution):
 
     if extracted_answer is None or extracted_answer.strip() in ["None", "none", ""]:
         retval = 0
-    elif extracted_solution is None or extracted_solution.strip() in ["None", "none", ""]:
+    elif extracted_solution is None or extracted_solution.strip() in [
+        "None",
+        "none",
+        "",
+    ]:
         retval = 0
     elif math_equal(extracted_answer, extracted_solution, timeout=True):
         retval = 1
