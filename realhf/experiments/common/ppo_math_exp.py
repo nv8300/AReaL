@@ -19,7 +19,7 @@ from realhf.api.core.system_api import ExperimentConfig
 from realhf.api.quickstart.dataset import PromptOnlyDatasetConfig
 from realhf.api.quickstart.device_mesh import MFCConfig
 from realhf.api.quickstart.entrypoint import register_quickstart_exp
-from realhf.api.quickstart.model import ModelTrainEvalConfig, ParallelismConfig
+from realhf.api.quickstart.model import ModelTrainEvalConfig
 from realhf.experiments.common.common import CommonExperimentConfig
 from realhf.experiments.common.utils import (
     asdict,
@@ -196,8 +196,8 @@ class PPOMATHConfig(CommonExperimentConfig):
     critic_train: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     actor_gen: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     critic_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    ref_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     rew_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
+    ref_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
     actor_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
 
     dataset: PromptOnlyDatasetConfig = dataclasses.field(
@@ -300,7 +300,7 @@ class PPOMATHConfig(CommonExperimentConfig):
         )
         critic_interface.args.pop("eps_clip")
         rw_interface = ModelInterfaceAbstraction(
-            "reward",
+            "rw-math-code",
             args=dict(
                 dataset_path=self.dataset.path,
                 tokenizer_path=self.actor.path,

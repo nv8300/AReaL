@@ -21,7 +21,7 @@ def check_is_realhf_native_impl(_cls):
 def check_is_realhf_native_model_interface(name):
     # NOTE: we should not import iterfaces here,
     # such that we can avoid CUDA initialization.
-    return name in ["ppo_actor", "ppo_critic", "sft", "ref_rw"]
+    return name in ["ppo_actor", "ppo_critic", "sft", "reward", "fused-threading"]
 
 
 def check_valid_vllm(role: str, vllm: vLLMConfig, rpc_allocs: List[RPCAllocation]):

@@ -461,4 +461,4 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
         return data
 
 
-model_api.register_interface("reward", MultiTaskRewardInterface)
+model_api.register_interface("rw-math-code", MultiTaskRewardInterface)

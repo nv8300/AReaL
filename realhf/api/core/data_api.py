@@ -8,7 +8,6 @@ import os
 import random
 import time
 from contextlib import contextmanager
-from enum import Enum
 
 # NOTE: We don't sue wildcard importing here because the type
 # `Sequence` has a very similar name to `SequenceSample`.
