@@ -7,7 +7,7 @@ from grader import math_equal
 
 def process_results(answer, solution):
     extracted_answer = extract_answer(answer, "math", use_last_number=False)
-    extracted_solution = solution
+    extracted_solution = extract_answer(solution, "math", use_last_number=True)
 
     if extracted_answer is None or extracted_answer.strip() in ["None", "none", ""]:
         retval = 0

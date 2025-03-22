@@ -3,6 +3,8 @@
 # Licensed under the Apache License, Version 2.0 (the "License").
 
 import json
+import traceback
+from collections import defaultdict
 from typing import Callable, Dict, Hashable, List, Optional
 
 import numpy as np
@@ -13,17 +15,34 @@ from realhf.base import logging
 
 logger = logging.getLogger("Math Code Dataset")
 
-id2info = {}
+
+def check_math_metadata_entries(data):
+    assert data["task"] == "math"
+    assert "query_id" in data
+    data["query_id"] = str(data["query_id"])
+    assert isinstance(data["prompt"], str)
+    assert isinstance(data["solutions"], list)
+    for sol in data["solutions"]:
+        assert isinstance(sol, str)
+    return data
 
 
 def check_code_metadata_entries(data):
-    # TODO: check test multi task reward
-    pass
-
-
-def check_math_metadata_entries(data):
-    # TODO: check test multi task reward
-    pass
+    assert data["task"] == "code"
+    assert "query_id" in data
+    data["query_id"] = str(data["query_id"])
+    if "problem_id" not in data:
+        data["problem_id"] = data["query_id"]
+    assert isinstance(data["prompt"], str)
+    input_output = json.loads(data["input_output"])
+    assert len(input_output["inputs"]) == len(input_output["outputs"])
+    for inp, out in zip(input_output["inputs"], input_output["outputs"]):
+        assert isinstance(inp, str) and isinstance(out, str), (
+            inp,
+            out,
+            input_output.get("fn_name"),
+        )
+    return data
 
 
 def load_metadata(path):
@@ -31,14 +50,26 @@ def load_metadata(path):
     with open(path, "r") as f:
         data = [json.loads(l) for l in f.readlines()]
     id2info = {}
+    omit_cnt = defaultdict(int)
+    task_cnt = defaultdict(int)
     for d in data:
         assert d["query_id"] not in d, (d["task"], d["query_id"])
-        if d["task"] == "math":
-            check_math_metadata_entries(d)
-        elif d["task"] == "code":
-            check_code_metadata_entries(d)
+        try:
+            if d["task"] == "math":
+                d = check_math_metadata_entries(d)
+            elif d["task"] == "code":
+                d = check_code_metadata_entries(d)
+        except Exception as e:
+            logger.warning(
+                f"Data validation failed: query_id {d['query_id']}. "
+                f"Error: {traceback.format_exc()}. Omit it in the dataset."
+            )
+            omit_cnt[d["task"]] += 1
+            continue
         id2info[d["query_id"]] = d
-    return id2info
+        task_cnt[d["task"]] += 1
+    logger.warning(f"Number of ignored data: {dict(**omit_cnt)}")
+    return id2info, dict(task_cnt)
 
 
 class MATHCodePromptDataset(torch.utils.data.Dataset):
@@ -59,8 +90,7 @@ class MATHCodePromptDataset(torch.utils.data.Dataset):
         self._util = util
         self.max_length = max_length
 
-        global id2info
-        id2info = load_metadata(dataset_path)
+        id2info, task_cnt = load_metadata(dataset_path)
 
         data = data_api.load_shuffle_split_dataset(util, dataset_path, dataset_builder)
 
@@ -83,7 +113,9 @@ class MATHCodePromptDataset(torch.utils.data.Dataset):
         indices = [
             i for i, x in enumerate(prompt_encodings["length"]) if x <= max_length
         ]
-        logger.info(f"{len(indices)} samples remain")
+        logger.info(
+            f"{len(indices)} samples remain, among them {task_cnt['math']} are math data and {task_cnt['code']} are code data"
+        )
 
         self.prompt_lengths = [int(prompt_encodings["length"][idx]) for idx in indices]
         self.prompts = [prompt_encodings["input_ids"][idx] for idx in indices]
@@ -183,4 +215,5 @@ else:
     )
     print(f"size: {len(dataset)}")
     for d in dataloader:
-        print(d.ids)
+        # print(d.ids)
+        pass

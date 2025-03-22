@@ -302,6 +302,7 @@ class PPOMATHConfig(CommonExperimentConfig):
         rw_interface = ModelInterfaceAbstraction(
             "reward",
             args=dict(
+                dataset_path=self.dataset.path,
                 tokenizer_path=self.actor.path,
                 output_scaling=self.ppo.reward_output_scaling,
                 output_bias=self.ppo.reward_output_bias,
@@ -336,7 +337,7 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_type=self.actor.type,
             model_path=self.actor.path,
             interface_impl=actor_interface,
-            input_keys=["packed_prompts"],
+            input_keys=["packed_prompts", "task_ids"],
             output_keys=rollout_output_keys,
             n_seqs=self.dataset.train_bs_n_seqs,
         )
@@ -361,20 +362,20 @@ class PPOMATHConfig(CommonExperimentConfig):
             interface_type=ModelInterfaceType.INFERENCE,
             interface_impl=rw_interface,
             min_n_seqs_per_pass=1 / self.group_size,
-            input_keys=["packed_input_ids", "packed_prompts"],
+            input_keys=["packed_input_ids", "packed_prompts", "task_ids"],
             output_keys=["rewards"],
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
         # add rew param into ref MFC
         inf_ref_inputs = ["packed_input_ids"]
-        inf_ref_outputs = ["logprobs"]
+        inf_ref_outputs = ["packed_ref_logprobs"]
         if self.ppo.fuse_rew_ref:
-            inf_ref_inputs += ["packed_prompts"]
+            inf_ref_inputs += ["packed_prompts", "task_ids"]
             inf_ref_outputs += ["rewards"]
 
         inf_ref_logits = MFCDef(
-            name="ref_rw",
+            name="ref_inf",
             model_name="ref",
             mb_spec=self.ref_inf.mb_spec,
             interface_type=ModelInterfaceType.INFERENCE,
@@ -495,7 +496,6 @@ class PPOMATHConfig(CommonExperimentConfig):
                 args=dict(
                     dataset_path=self.dataset.path,
                     max_length=self.dataset.max_prompt_len,
-                    fill_to_max_length=self.dataset.fill_to_max_length,
                     filter_threshold=self.dataset_filter_threshold,
                     max_filter_percentage=self.dataset_max_filter_percentage,
                 ),

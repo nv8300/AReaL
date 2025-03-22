@@ -24,7 +24,7 @@ def math_verify(
     for idx, (query_id, generated) in enumerate(zip(query_ids, generateds)):
         base_query_id = query_id.split("@idx:")[0]
         info = id2info[base_query_id]
-        for cur_solution in info["answers"]:
+        for cur_solution in info["solutions"]:
             parameters.append((generated, cur_solution, idx))
             query_indices.append(idx)
 

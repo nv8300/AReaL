@@ -190,7 +190,7 @@ class MultiTaskRewardInterface(model_api.ModelInterface):
 
     def __post_init__(self):
         global id2info
-        id2info = load_metadata(self.dataset_path)
+        id2info, _ = load_metadata(self.dataset_path)
         self.tokenizer = load_hf_tokenizer(self.tokenizer_path)
         if constants.parallelism_rank() == 0:
             logger.info(f"output_scaling: {self.output_scaling}")
