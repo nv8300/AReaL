@@ -242,13 +242,17 @@ class PPOMATHConfig(CommonExperimentConfig):
     @property
     def models(self) -> Dict[str, ModelTrainEvalConfig]:
         # role to config
+        reward = copy.deepcopy(self.actor)
         models = {
             "actor": self.actor,
             "critic": self.critic,
             "ref": self.ref,
+            "reward": reward,
         }
         if self.ppo.disable_value:
             models.pop("critic")
+        if self.ppo.fuse_rew_ref:
+            models.pop("reward")
         return models
 
     @property

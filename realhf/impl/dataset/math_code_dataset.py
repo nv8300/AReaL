@@ -69,7 +69,7 @@ def load_metadata(path):
         id2info[d["query_id"]] = d
         task_cnt[d["task"]] += 1
     logger.warning(f"Number of ignored data: {dict(**omit_cnt)}")
-    return id2info, dict(task_cnt)
+    return id2info, task_cnt
 
 
 class MATHCodePromptDataset(torch.utils.data.Dataset):
@@ -202,7 +202,7 @@ else:
             ),
         ),
         max_length=512,
-        dataset_path="/storage/openpsi/users/bowei.fw/data/code_math.jsonl",
+        dataset_path="/storage/openpsi/users/bowei.fw/data/math.jsonl",
     )
 
     dataloader = torch.utils.data.DataLoader(

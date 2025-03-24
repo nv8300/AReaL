@@ -920,7 +920,7 @@ class ModelWorker(worker_base.Worker):
             "dataset_eval_scores.json",
         )
         eval_scores = {}
-        if isinstance(res, data_api.SequenceSample):
+        if isinstance(res, data_api.SequenceSample) and constants.is_dp_head():
             if rpc.output_key_remap:
                 res.remap_keys_(rpc.output_key_remap)
             res = res.select(rpc.output_keys)
