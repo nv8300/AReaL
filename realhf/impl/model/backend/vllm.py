@@ -207,6 +207,8 @@ class vLLMGenerationBackend(vLLMConfig, model_api.ModelBackend):
             max_seq_len_to_capture=self.max_seq_len_to_capture,
             enable_prefix_caching=self.enable_prefix_caching,
             gpu_memory_utilization=self.gpu_memory_utilization,
+            disable_sliding_window=self.disable_sliding_window,
+            enable_chunked_prefill=self.enable_chunked_prefill,
             disable_custom_all_reduce=True,
             disable_async_output_proc=False,
             disable_log_stats=False,
