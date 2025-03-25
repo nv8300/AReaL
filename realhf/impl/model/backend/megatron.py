@@ -23,7 +23,7 @@ from realhf.api.quickstart.model import (
     MegatronConfig,
     OptimizerConfig,
 )
-from realhf.base import constants, logging
+from realhf.base import constants, logging, pkg_version
 from realhf.base.datapack import flat2d
 from realhf.base.monitor import CUDATimeMarkType, cuda_tmarked
 from realhf.impl.model.backend.inference import PipelinableInferenceEngine
@@ -34,6 +34,7 @@ from realhf.impl.model.nn.real_llm_api import ReaLModel
 from realhf.impl.model.nn.real_llm_base import ReaLModelBlock
 from realhf.impl.model.parallelism.pipeline_parallel.tensor_storage import TensorBuffer
 
+megatron_available = pkg_version.is_available("megatron.core")
 try:
     # Monkey patch
     import megatron.core.optimizer as mcore_optim
@@ -42,13 +43,15 @@ try:
         def get_model_parallel_group(self):
             return constants.parallelism_group()
 
+        def get_grad_stats_parallel_group(self):
+            return constants.parallelism_group()
+
     mcore_optim.DistributedOptimizer = DistributedOptimizer
 
     from megatron.core import parallel_state
     from megatron.core.distributed.distributed_data_parallel import (
         DistributedDataParallel,
     )
-    from megatron.core.distributed.param_and_grad_buffer import ParamAndGradBuffer
     from megatron.core.optimizer import DistributedOptimizer, get_megatron_optimizer
     from megatron.core.optimizer.optimizer_config import (
         OptimizerConfig as MegatronOptimizerConfig,
@@ -57,7 +60,6 @@ try:
         TransformerConfig as MegatronTransformerConfig,
     )
 
-    megatron_available = True
 except (ModuleNotFoundError, ImportError):
     # importing megatron.core in CPU container will fail due to the requirement of apex
     # Here class types must be defined for type hinting
@@ -72,17 +74,12 @@ except (ModuleNotFoundError, ImportError):
 
 
 if megatron_available:
-    try:
+    if pkg_version.is_version_greater_or_equal("megatron.core", "0.7.0"):
         from megatron.core.optimizer_param_scheduler import OptimizerParamScheduler
-
-        use_old_megatron = False
-    except (ModuleNotFoundError, ImportError):
-        # The above object is available in 0.9.0 but missing in 0.6.0
+    else:
         from realhf.impl.model.backend.thirdparty.megatron.v0_6_0.lr_schduler import (
             OptimizerParamScheduler,
         )
-
-        use_old_megatron = True
 
 
 WITHIN_MEGATRON_CONTEXT = False
@@ -112,6 +109,13 @@ def megatron_ctx():
         grid.get_data_parallel_group_gloo()
     )
     parallel_state._DATA_PARALLEL_GLOBAL_RANKS_WITH_CP = dist.get_process_group_ranks(g)
+    if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+        parallel_state._INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP = (
+            constants.data_parallel_group()
+        )
+        parallel_state._INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP_GLOO = (
+            grid.get_data_parallel_group_gloo()
+        )
 
     # Build the context-parallel groups.
     parallel_state._CONTEXT_PARALLEL_GROUP = constants.self_group()
@@ -119,10 +123,17 @@ def megatron_ctx():
 
     # Build the model-parallel groups.
     parallel_state._MODEL_PARALLEL_GROUP = grid.get_model_parallel_group()
+    if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+        g = grid.get_model_parallel_group()
+        parallel_state._MODEL_PARALLEL_GLOBAL_RANKS = dist.get_process_group_ranks(g)
 
     # Build the tensor model-parallel groups.
-    g = constants.model_parallel_group()
     parallel_state._TENSOR_MODEL_PARALLEL_GROUP = g
+    if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+        g = constants.model_parallel_group()
+        parallel_state._TENSOR_MODEL_PARALLEL_GLOBAL_RANKS = (
+            dist.get_process_group_ranks(g)
+        )
 
     # Build the pipeline model-parallel groups and embedding groups
     # (first and last rank in each pipeline model-parallel group).
@@ -145,16 +156,38 @@ def megatron_ctx():
     # Build the tensor + data parallel groups.
     parallel_state._TENSOR_AND_DATA_PARALLEL_GROUP = grid.tp_dp_proc_group
     parallel_state._TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP = grid.tp_dp_proc_group
+    if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+        # Build the tensor + context parallel groups
+        parallel_state._TENSOR_AND_CONTEXT_PARALLEL_GROUP = (
+            constants.model_parallel_group()
+        )
 
-    # Build the tensor + expert parallel groups
+    # Build expert parallel groups.
     parallel_state._EXPERT_MODEL_PARALLEL_GROUP = constants.self_group()
-    parallel_state._TENSOR_AND_EXPERT_PARALLEL_GROUP = constants.model_parallel_group()
-    g = constants.data_parallel_group()
-    parallel_state._DATA_MODULO_EXPERT_PARALLEL_GROUP = g
-    parallel_state._DATA_MODULO_EXPERT_PARALLEL_GROUP_WITH_CP = g
-    parallel_state._DATA_MODULO_EXPERT_PARALLEL_GROUP_GLOO = (
-        grid.get_data_parallel_group_gloo()
-    )
+
+    if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+        parallel_state._EXPERT_TENSOR_PARALLEL_GROUP = constants.self_group()
+        parallel_state._EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP = constants.self_group()
+        parallel_state._EXPERT_TENSOR_MODEL_PIPELINE_PARALLEL_GROUP = (
+            grid.get_pipe_parallel_group()
+        )
+        parallel_state._EXPERT_DATA_PARALLEL_GROUP = constants.data_parallel_group()
+        parallel_state._EXPERT_DATA_PARALLEL_GROUP_GLOO = (
+            grid.get_data_parallel_group_gloo()
+        )
+    else:
+        parallel_state._TENSOR_AND_EXPERT_PARALLEL_GROUP = (
+            constants.model_parallel_group()
+        )
+        parallel_state._DATA_MODULO_EXPERT_PARALLEL_GROUP = (
+            constants.data_parallel_group()
+        )
+        parallel_state._DATA_MODULO_EXPERT_PARALLEL_GROUP_WITH_CP = (
+            constants.data_parallel_group()
+        )
+        parallel_state._DATA_MODULO_EXPERT_PARALLEL_GROUP_GLOO = (
+            grid.get_data_parallel_group_gloo()
+        )
 
     # Remove the global memory buffer for megatron to save GPU memory.
     parallel_state._GLOBAL_MEMORY_BUFFER = None
@@ -514,12 +547,17 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
         self, model: model_api.Model, spec: model_api.FinetuneSpec
     ) -> model_api.Model:
         module = model.module
+
         if not isinstance(module, ReaLModel):
             raise ValueError("MegatronTrainBackend only supports ReaLModel.")
         if isinstance(self.ddp, dict):
+            if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+                from megatron.core.distributed.distributed_data_parallel_config import (
+                    DistributedDataParallelConfig,
+                )
             self.ddp = DistributedDataParallelConfig(**self.ddp)
         with megatron_ctx():
-            if use_old_megatron:
+            if pkg_version.is_version_less("megatron.core", "0.7.0"):
                 module = DistributedDataParallel(
                     config=get_megatron_transformer_config(module.config),
                     module=module,
@@ -544,11 +582,9 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
         if self.ddp.use_distributed_optimizer:
             # Remap parameters.
             assert len(module.buffers) == 1
-            param_grad_buf: ParamAndGradBuffer = module.buffers[0]
-
+            param_grad_buf = module.buffers[0]
             # Map Megatron flattened parameters to ReaLModel!
             real_model.contiguous_param = param_grad_buf.param_data
-
             # Sanity checks.
             assert real_model._param_size == param_grad_buf.numel, (
                 real_model._param_size,
@@ -590,11 +626,18 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
             adam_beta2=betas[1],
             adam_eps=self.optimizer.eps,
             use_distributed_optimizer=self.ddp.use_distributed_optimizer,
-            overlap_grad_reduce=self.ddp.overlap_grad_reduce,
-            overlap_param_gather=self.ddp.overlap_param_gather,
             clip_grad=self.optimizer.gradient_clipping,
             log_num_zeros_in_grad=False,
         )
+        if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+            opt_cfg.overlap_param_gather_with_optimizer_step = (
+                self.overlap_param_gather_with_optimizer_step
+            )
+            opt_cfg.use_precision_aware_optimizer = self.use_precision_aware_optimizer
+            opt_cfg.main_grads_dtype = getattr(torch, self.main_grads_dtype)
+            opt_cfg.main_params_dtype = getattr(torch, self.main_params_dtype)
+            opt_cfg.exp_avg_dtype = getattr(torch, self.exp_avg_dtype)
+            opt_cfg.exp_avg_sq_dtype = getattr(torch, self.exp_avg_sq_dtype)
 
         with megatron_ctx():
             # no_weight_decay_cond and scale_lr_cond have the following signature:
@@ -632,13 +675,16 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
 
     def destroy(self, model: model_api.Model):
         assert isinstance(model.module, ReaLMegatronEngine)
-        optimizer = model.module.engine.optim
         # The Megatron backend will register forward hooks that
         # create circular references (grad -> param -> grad).
         # Deleting models directly will not release the memory.
         # We must disable hooks at first.
-        if self.ddp.use_distributed_optimizer and self.ddp.overlap_param_gather:
-            optimizer.disable_pre_hook()
+        if pkg_version.is_version_greater_or_equal("megatron.core", "0.11.0"):
+            model.module.module.engine.ddp.disable_forward_pre_hook()
+        else:
+            optimizer = model.module.engine.optim
+            if self.ddp.use_distributed_optimizer and self.ddp.overlap_param_gather:
+                optimizer.disable_pre_hook()
 
     def save(self, model: model_api.Model, save_dir: str):
         assert isinstance(model.module, ReaLMegatronEngine)

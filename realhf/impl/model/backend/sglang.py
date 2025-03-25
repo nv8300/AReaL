@@ -7,7 +7,6 @@ import os
 import sys
 import time
 import traceback
-from importlib.metadata import version
 from typing import Dict, List, Tuple
 
 import aiohttp
@@ -16,7 +15,6 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import transformers
-from packaging.version import Version
 from tqdm.asyncio import tqdm
 
 from realhf.api.core import data_api
@@ -32,13 +30,27 @@ from realhf.api.core.model_api import (
     register_backend,
 )
 from realhf.api.quickstart.model import SGLangConfig
-from realhf.base import cluster, constants, gpu_utils, logging, network, seeding
+from realhf.base import (
+    cluster,
+    constants,
+    gpu_utils,
+    logging,
+    network,
+    pkg_version,
+    seeding,
+)
 
 logger = logging.getLogger("SGLang backend")
 
 
 def remove_prefix(text: str, prefix: str) -> str:
     return text[len(prefix) :] if text.startswith(prefix) else text
+
+
+if pkg_version.is_version_greater_or_equal("sglang", "0.4.4"):
+    SGLANG_TOKEN_OUTPUT_IDENTIFIER = "output_ids"
+else:
+    SGLANG_TOKEN_OUTPUT_IDENTIFIER = "token_ids"
 
 
 class SGLangAPIClient(LLMAPIClient):
@@ -95,7 +107,7 @@ class SGLangAPIClient(LLMAPIClient):
                             # NOTE: Some completion API might have a last
                             # usage summary response without a token so we
                             # want to check a token was generated
-                            if data["token_ids"]:
+                            if data[SGLANG_TOKEN_OUTPUT_IDENTIFIER]:
                                 timestamp = time.perf_counter()
                                 # First token
                                 if ttft == 0.0:
@@ -107,7 +119,7 @@ class SGLangAPIClient(LLMAPIClient):
                                     output.itl.append(timestamp - most_recent_timestamp)
 
                                 most_recent_timestamp = timestamp
-                                output_ids = data["token_ids"]
+                                output_ids = data[SGLANG_TOKEN_OUTPUT_IDENTIFIER]
                                 finish_reason = data["meta_info"]["finish_reason"]
                                 output_logprobs = data["meta_info"][
                                     "output_token_logprobs"
@@ -148,8 +160,7 @@ def sglang_server_process(server_args_dict):
     from sglang.srt.server_args import ServerArgs
     from sglang.srt.utils import kill_process_tree
 
-    sglang_version = version("sglang")
-    if Version(sglang_version) < Version("0.4.3"):
+    if pkg_version.is_version_less("sglang", "0.4.3"):
         from sglang.srt.server import launch_server
 
         server_args_dict.pop("enable_nccl_nvls")
@@ -423,7 +434,7 @@ class SGLangGenerationBackend(ModelBackend, SGLangConfig):
             tp_size=constants.model_parallel_world_size(),
             # Because we have set CUDA_VISIBLE_DEVICES to a single GPU in each process
             base_gpu_id=int(os.environ["CUDA_VISIBLE_DEVICES"]),
-            file_storage_pth=os.path.join(
+            file_storage_path=os.path.join(
                 constants.SGLANG_CACHE_PATH,
                 f"sglang_storage{constants.data_parallel_rank()}",
             ),

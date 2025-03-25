@@ -147,7 +147,6 @@ class vLLMConfig:
 class SGLangConfig:
     disable_cuda_graph: bool = False
     disable_radix_cache: bool = False
-    disable_jump_forward: bool = False
     disable_cuda_graph_padding: bool = False
     enable_nccl_nvls: bool = False
     disable_outlines_disk_cache: bool = False
@@ -169,7 +168,6 @@ class SGLangConfig:
     num_continuous_decode_steps: int = 1
     enable_memory_saver: bool = False
     allow_auto_truncate: bool = False
-    return_hidden_states: bool = False
     # NOTE: to avoid the illegal memory access error
     attention_backend: Optional[str] = "triton"
     sampling_backend: Optional[str] = None
@@ -253,6 +251,13 @@ class MegatronConfig:
     )
     # Don't use MegatronOptimizerConfig here because OmegaConf
     # does not recognize the annotation "torch.dtype"
+    overlap_param_gather_with_optimizer_step: bool = False
+
+    use_precision_aware_optimizer: bool = False
+    main_grads_dtype: str = "float32"
+    main_params_dtype: str = "float32"
+    exp_avg_dtype: str = "float32"
+    exp_avg_sq_dtype: str = "float32"
 
 
 @dataclasses.dataclass

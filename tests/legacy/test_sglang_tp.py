@@ -112,7 +112,10 @@ def test_fn(
 
         from realhf.impl.model.backend.sglang import SGLangGenerationBackend
 
-        backend = SGLangGenerationBackend(model_path=path)
+        backend = SGLangGenerationBackend(
+            model_path=path,
+            dtype="bfloat16" if module.dtype == torch.bfloat16 else torch.float16,
+        )
         model = model_api.Model(
             name=model_name,
             module=module,
@@ -188,7 +191,6 @@ def test_fn(
 
         print("success")
 
-    # 清理分布式环境
     dist.destroy_process_group()
 
 
