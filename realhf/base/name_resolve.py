@@ -4,18 +4,21 @@
 
 # Implements a simple name resolving service, which can be considered as a distributed key-value dict.
 import dataclasses
-import getpass
 import os
 import queue
 import random
 import shutil
-import socket
 import threading
 import time
 import uuid
 from typing import Callable, List, Optional
 
-from realhf.base import logging, security, timeutil
+try:
+    import etcd3
+except Exception:
+    etcd3 = None
+
+from realhf.base import cluster, logging, security, timeutil
 from realhf.base.cluster import spec as cluster_spec
 
 logger = logging.getLogger("name-resolve")
@@ -532,6 +535,353 @@ class RedisNameRecordRepository(NameRecordRepository):
             print("Testonly: dropped key:", name)
 
 
+class Etcd3NameRecordRepository(NameRecordRepository):
+    """Implements a name record repository using etcd3 as the backend storage.
+
+    This implementation provides distributed key-value storage with support for
+    TTL-based expiration, atomic operations, and key watching functionality.
+    """
+
+    # Default configuration
+    host, port = os.getenv("REAL_ETCD_ADDR", "localhost:2379").split(":")
+    ETCD_HOST = host
+    ETCD_PORT = int(port)
+    ETCD_USER = None
+    ETCD_PASSWORD = None
+    KEEPALIVE_POLL_FREQUENCY = 1
+
+    @dataclasses.dataclass
+    class _Entry:
+        value: str
+        lease_id: Optional[int] = None
+        keepalive_ttl: Optional[int] = None
+        keeper: Optional[timeutil.FrequencyControl] = None
+
+    def __init__(self, host=None, port=None, user=None, password=None, **kwargs):
+        """Initialize the etcd3 name record repository.
+
+        Args:
+            host: etcd server host (defaults to ETCD_HOST)
+            port: etcd server port (defaults to ETCD_PORT)
+            user: etcd username for authentication (defaults to ETCD_USER)
+            password: etcd password for authentication (defaults to ETCD_PASSWORD)
+            **kwargs: Additional configuration parameters
+        """
+
+        super().__init__()
+        self._lock = threading.Lock()
+
+        # Set connection parameters
+        self._host = host or self.ETCD_HOST
+        self._port = port or self.ETCD_PORT
+        self._user = user or self.ETCD_USER
+        self._password = password or self.ETCD_PASSWORD
+
+        # Connect to etcd
+        self._client = etcd3.client(
+            host=self._host, port=self._port, user=self._user, password=self._password
+        )
+
+        # Keep track of entries for cleanup and keepalive
+        self._entries = {}
+        self._keepalive_running = True
+        self._keepalive_thread = threading.Thread(
+            target=self._keepalive_thread_run, daemon=True
+        )
+        self._keepalive_thread.start()
+
+        logger.info(f"Connected to etcd3 at {self._host}:{self._port}")
+
+    def __del__(self):
+        """Clean up resources when the object is deleted."""
+        self._keepalive_running = False
+        if hasattr(self, "_keepalive_thread"):
+            self._keepalive_thread.join(timeout=5)
+        self.reset()
+        if hasattr(self, "_client"):
+            self._client.close()
+
+    def _create_lease(self, ttl_seconds):
+        """Create an etcd lease with the specified TTL.
+
+        Args:
+            ttl_seconds: Time-to-live in seconds
+
+        Returns:
+            The lease ID
+        """
+        lease = self._client.lease(ttl_seconds)
+        return lease.id
+
+    def add(
+        self,
+        name,
+        value,
+        delete_on_exit=True,
+        keepalive_ttl=300,
+        replace=False,
+    ):
+        """Add a key-value pair to etcd with optional TTL.
+
+        Args:
+            name: Key name
+            value: Value to store
+            delete_on_exit: Whether to delete the key when this object is destroyed
+            keepalive_ttl: TTL in seconds for the key (default: 10)
+            replace: Whether to replace an existing key
+
+        Raises:
+            NameEntryExistsError: If the key already exists and replace is False
+        """
+        name = name.rstrip("/")
+        value = str(value)
+
+        with self._lock:
+            # Check if key exists when replace=False
+            if not replace:
+                existing_value, _ = self._client.get(name)
+                if existing_value is not None:
+                    raise NameEntryExistsError(
+                        f"Key already exists: K={name} V={existing_value.decode()}"
+                    )
+
+            # Create lease for TTL if specified
+            lease_id = None
+            if keepalive_ttl is not None and keepalive_ttl > 0:
+                lease_id = self._create_lease(keepalive_ttl)
+                # Encode the string value to bytes
+                self._client.put(name, value.encode("utf-8"), lease=lease_id)
+            else:
+                # Encode the string value to bytes
+                self._client.put(name, value.encode("utf-8"))
+
+            # Store entry information for keepalive management
+            self._entries[name] = self._Entry(
+                value=value,
+                lease_id=lease_id,
+                keepalive_ttl=keepalive_ttl,
+                keeper=(
+                    timeutil.FrequencyControl(frequency_seconds=keepalive_ttl / 3)
+                    if keepalive_ttl
+                    else None
+                ),
+            )
+
+    def delete(self, name):
+        """Delete a key from etcd.
+
+        Args:
+            name: Key to delete
+
+        Raises:
+            NameEntryNotFoundError: If the key doesn't exist
+        """
+        with self._lock:
+            self._delete_locked(name)
+
+    def _delete_locked(self, name):
+        """Delete a key from etcd with lock already acquired.
+
+        Args:
+            name: Key to delete
+
+        Raises:
+            NameEntryNotFoundError: If the key doesn't exist
+        """
+        # First check if the key exists
+        value, _ = self._client.get(name)
+        if value is None:
+            raise NameEntryNotFoundError(f"No such etcd entry to delete: {name}")
+
+        # Clean up entry tracking
+        if name in self._entries:
+            del self._entries[name]
+
+        # Delete from etcd
+        self._client.delete(name)
+
+    def clear_subtree(self, name_root):
+        """Delete all keys with the given prefix.
+
+        Args:
+            name_root: Prefix to match keys against
+        """
+        with self._lock:
+            count = 0
+            name_root = name_root.rstrip("/")
+            # Get all keys with the prefix
+            for key_metadata_tuple in self._client.get_prefix(name_root):
+                key = key_metadata_tuple[1].key.decode(
+                    "utf-8"
+                )  # Extract the key from metadata
+                # Remove from our tracking
+                if key in self._entries:
+                    del self._entries[key]
+                # Delete from etcd
+                self._client.delete(key)
+                count += 1
+
+            logger.debug(f"Deleted {count} etcd entries under {name_root}")
+
+    def get_subtree(self, name_root):
+        """Get all values with keys having the given prefix.
+
+        Args:
+            name_root: Prefix to match keys against
+
+        Returns:
+            List of values
+        """
+        with self._lock:
+            rs = []
+            name_root = name_root.rstrip("/")
+            for value_metadata_tuple in self._client.get_prefix(name_root):
+                value = value_metadata_tuple[0].decode("utf-8")  # Extract the value
+                rs.append(value)
+            return sorted(rs)
+
+    def find_subtree(self, name_root):
+        """Find all keys with the given prefix.
+
+        Args:
+            name_root: Prefix to match keys against
+
+        Returns:
+            List of keys
+        """
+        with self._lock:
+            rs = []
+            for key_metadata_tuple in self._client.get_prefix(name_root):
+                key = key_metadata_tuple[1].key.decode(
+                    "utf-8"
+                )  # Extract the key from metadata
+                rs.append(key)
+            return sorted(rs)
+
+    def get(self, name):
+        """Get the value for a key.
+
+        Args:
+            name: Key to retrieve
+
+        Returns:
+            The value as a string
+
+        Raises:
+            NameEntryNotFoundError: If the key doesn't exist
+        """
+        with self._lock:
+            return self._get_locked(name)
+
+    def _get_locked(self, name):
+        """Get a value with lock already acquired.
+
+        Args:
+            name: Key to retrieve
+
+        Returns:
+            The value as a string
+
+        Raises:
+            NameEntryNotFoundError: If the key doesn't exist
+        """
+        value, _ = self._client.get(name)
+        if value is None:
+            raise NameEntryNotFoundError(f"No such etcd entry: {name}")
+        return value.decode("utf-8")
+
+    def reset(self):
+        """Delete all keys added via this repository instance."""
+        with self._lock:
+            count = 0
+            for name in list(self._entries):
+                try:
+                    self._delete_locked(name)
+                    count += 1
+                except NameEntryNotFoundError:
+                    pass
+            self._entries = {}
+            logger.info(f"Reset {count} saved etcd entries")
+
+    def _keepalive_thread_run(self):
+        """Background thread to keep leases alive."""
+        while self._keepalive_running:
+            time.sleep(self.KEEPALIVE_POLL_FREQUENCY)
+            with self._lock:
+                for name, entry in list(self._entries.items()):
+                    if (
+                        entry.keeper is not None
+                        and entry.keepalive_ttl is not None
+                        and entry.lease_id is not None
+                        and entry.keeper.check()
+                    ):
+                        try:
+                            # Refresh the lease
+                            self._client.refresh_lease(entry.lease_id)
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to refresh lease for key: K={name} V={entry.value}. Error: {e}"
+                            )
+
+    def watch_names(
+        self,
+        names: List,
+        call_back: Callable,
+        poll_frequency=15,
+        wait_timeout=300,
+    ):
+        """Watch keys and call back when they are deleted.
+
+        Args:
+            names: Keys to watch
+            call_back: Function to call when any key is deleted
+            poll_frequency: How often to check in seconds
+            wait_timeout: Maximum time to wait for keys to exist
+        """
+        if isinstance(names, str):
+            names = [names]
+
+        # Use etcd's native watch capability for more efficient watching
+        for name in names:
+            # First wait for the key to exist
+            self.wait(name, timeout=wait_timeout, poll_frequency=poll_frequency)
+
+            # Start watching for key deletion
+            watch_id = self._client.add_watch_callback(
+                name, lambda event: self._watch_callback(event, call_back)
+            )
+
+            # Store watch ID for cleanup
+            if not hasattr(self, "_watch_ids"):
+                self._watch_ids = []
+            self._watch_ids.append(watch_id)
+
+    def _watch_callback(self, event, callback):
+        """Process watch events and call back on deletion.
+
+        Args:
+            event: The etcd watch response (WatchResponse object)
+            callback: Function to call when a key is deleted
+        """
+        # Iterate through the events in the WatchResponse
+        for ev in event.events:
+            # Check if this is a delete event
+            if isinstance(ev, etcd3.events.DeleteEvent):
+                logger.debug(f"Key {ev.key.decode()} was deleted. Executing callback.")
+                callback()
+
+    def _testonly_drop_cached_entry(self, name):
+        """Used by unittest only to simulate the case that the process crashes.
+
+        Args:
+            name: Key to drop from local cache
+        """
+        with self._lock:
+            if name in self._entries:
+                del self._entries[name]
+                logger.debug(f"Testonly: dropped key: {name}")
+
+
 def make_repository(type_="nfs", **kwargs):
     if type_ == "memory":
         return MemoryNameRecordRepository(**kwargs)
@@ -539,12 +889,16 @@ def make_repository(type_="nfs", **kwargs):
         return NfsNameRecordRepository(**kwargs)
     elif type_ == "redis":
         return RedisNameRecordRepository(**kwargs)
+    elif type_ == "etcd3":
+        return Etcd3NameRecordRepository(**kwargs)
     else:
         raise NotImplementedError(f"No such name resolver: {type_}")
 
 
 # DEFAULT_REPOSITORY_TYPE = "redis" if socket.gethostname().startswith("frl") else "nfs"
 DEFAULT_REPOSITORY_TYPE = "nfs"
+if etcd3 is not None and cluster.spec.name in ["wa180"]:
+    DEFAULT_REPOSITORY_TYPE = "etcd3"
 DEFAULT_REPOSITORY = make_repository(DEFAULT_REPOSITORY_TYPE)
 add = DEFAULT_REPOSITORY.add
 add_subentry = DEFAULT_REPOSITORY.add_subentry

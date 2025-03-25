@@ -95,14 +95,13 @@ def run_test_exp(
     testcase.start()
 
     # Run the master worker.
-    for _ in range(100):
-        for _ in range(100):
-            if mas.status == WorkerServerStatus.PAUSED:
-                break
-            if not initd:
-                logger.info("Running master worker lazy initialization...")
-            mas._poll()
-            if not initd:
-                logger.info("Running master worker lazy initialization... Done.")
-                initd = True
-        testcase.wait(timeout=0.1)
+    for _ in range(int(1e4)):
+        if mas.status == WorkerServerStatus.PAUSED:
+            break
+        if not initd:
+            logger.info("Running master worker lazy initialization...")
+        mas._poll()
+        if not initd:
+            logger.info("Running master worker lazy initialization... Done.")
+            initd = True
+    testcase.wait(timeout=0.1)

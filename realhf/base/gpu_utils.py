@@ -62,7 +62,7 @@ def reveal_pg_identity(expr_name, trial_name, worker_index):
     master_group_name = names.distributed_peer(
         expr_name, trial_name, GLOBAL_PROCESS_GROUP_NAME
     )
-    name_resolve.add_subentry(master_group_name, str(worker_index), keepalive_ttl=30)
+    name_resolve.add_subentry(master_group_name, str(worker_index), keepalive_ttl=300)
 
 
 def isolate_cuda_device(

@@ -54,3 +54,5 @@ cookiecutter>2.1.1
 asyncio
 aiohttp
 httpx>=0.28.1
+etcd3
+protobuf<3.21

@@ -179,8 +179,10 @@ class ReaLModel(nn.Module):
     def save_to_hf(self, tokenizer, save_dir):
         return getattr(self, f"to_{self.hf_model_family}")(tokenizer, save_dir)
 
-    def load_from_hf(self, load_dir):
-        return getattr(self, f"from_{self.hf_model_family}")(load_dir)
+    def load_from_hf(self, load_dir, init_critic_from_actor):
+        return getattr(self, f"from_{self.hf_model_family}")(
+            load_dir, init_critic_from_actor
+        )
 
     @property
     def pre_process(self):

@@ -383,7 +383,7 @@ class NameResolvingReplyServer:
                 experiment_name, trial_name, PUBSUB_BARRIER_NAME
             ),
             value=socket.gethostbyname(socket.gethostname()),
-            keepalive_ttl=60,
+            keepalive_ttl=1200,
         )
 
     def accept(self, server_send_addr: str, server_recv_addr: str):

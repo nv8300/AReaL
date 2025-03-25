@@ -20,7 +20,7 @@ logger = logging.getLogger("worker")
 
 _MAX_SOCKET_CONCURRENCY = 1000
 WORKER_WAIT_FOR_CONTROLLER_SECONDS = 3600
-WORKER_JOB_STATUS_LINGER_SECONDS = 60
+WORKER_JOB_STATUS_LINGER_SECONDS = 1800
 
 
 class WorkerException(Exception):
@@ -127,7 +127,7 @@ class WorkerServer:
         if experiment_name is not None and trial_name is not None:
             key = names.worker(experiment_name, trial_name, worker_name)
             address = f"{host_ip}:{self.__task_queue.port}"
-            name_resolve.add(key, address, keepalive_ttl=10, delete_on_exit=True)
+            name_resolve.add(key, address, keepalive_ttl=1200, delete_on_exit=True)
             logger.debug(
                 "Added name_resolve entry %s for worker server at %s",
                 key,

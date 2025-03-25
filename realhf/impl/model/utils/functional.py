@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 import transformers
 
-from realhf.base import constants, logging
+from realhf.base import cluster, constants, logging
 from realhf.impl.model.utils.padding import pad_input, unpad_input
 
 logger = logging.getLogger("Modeling Functional Utils")
@@ -166,7 +166,6 @@ def build_leave_one_indices(
     )
 
 
-@torch.compile
 def gather_logprobs(
     logits: torch.Tensor,
     labels: torch.Tensor,
@@ -185,6 +184,10 @@ def gather_logprobs(
     log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
     log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
     return log_probs_labels
+
+
+if cluster.spec.name != "wa180":
+    gather_logprobs = torch.compile(gather_logprobs)
 
 
 def gather_packed_shifted_log_probs(
