@@ -120,18 +120,8 @@ cd /storage/ray/
 ```bash
 mkdir -p /storage/datasets/
 cd /storage/datasets/
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/prompts_for_r1_distilled.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/prompts_for_zero.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/id2info.json?download=true
-```
-
-如果无法访问 `huggingface.co`，也可以从 ModelScope 下载：
-```bash
-mkdir -p /storage/datasets/
-cd /storage/datasets/
-wget https://www.modelscope.cn/datasets/inclusionAI/AReaL-RL-Data/resolve/master/data/prompts_for_r1_distilled.jsonl
-wget https://www.modelscope.cn/datasets/inclusionAI/AReaL-RL-Data/resolve/master/data/prompts_for_zero.jsonl
-wget https://www.modelscope.cn/datasets/inclusionAI/AReaL-RL-Data/resolve/master/data/id2info.json
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_prompts_for_r1_distilled.jsonl?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_orz_zero.jsonl?download=true
 ```
 
 ## 模型
@@ -145,15 +135,6 @@ GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-D
 ```
 
 你也可以在安装 PyPI 和 huggingface_hub 后利用 huggingface CLI 进行下载，具体请参考[官方文档](https://huggingface.co/docs/huggingface_hub/guides/cli)
-
-如果无法访问 `huggingface.co`，也可以从 ModelScope 下载（请确保已经安装了 Git LFS）：
-
-```
-mkdir -p /storage/models
-cd /storage/models
-git clone https://www.modelscope.cn/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B.git
-git clone https://www.modelscope.cn/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B.git
-```
 
 
 ## 启动 Ray 集群

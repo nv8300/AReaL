@@ -49,12 +49,16 @@ def load_metadata(path):
     assert str(path).endswith(".jsonl"), path
     with open(path, "r") as f:
         data = [json.loads(l) for l in f.readlines()]
+
     id2info = {}
     omit_cnt = defaultdict(int)
     task_cnt = defaultdict(int)
     for d in data:
         assert d["query_id"] not in d, (d["task"], d["query_id"])
         try:
+            if "task" not in d:
+                d["task"] = "math"
+                logger.warning(f'Key "task" not found in the dataset. Use math as default task type.')
             if d["task"] == "math":
                 d = check_math_metadata_entries(d)
             elif d["task"] == "code":
@@ -202,7 +206,7 @@ else:
             ),
         ),
         max_length=512,
-        dataset_path="/storage/openpsi/users/bowei.fw/data/math.jsonl",
+        dataset_path='/storage/datasets/full_prompts_for_r1_distilled.jsonl'
     )
 
     dataloader = torch.utils.data.DataLoader(

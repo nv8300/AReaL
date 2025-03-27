@@ -4,7 +4,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 EXP_NAME=ppo-zero-distill-1.5B-n16
 MODEL_NAME="DeepSeek-R1-Distill-Qwen-1.5B"
-DATASET_NAME="prompts_for_r1_distilled.jsonl"
+DATASET_NAME="full_prompts_for_r1_distilled.jsonl"
 NODES=16
 ALLOCATION_MODE="vllm.d64p1m1+d32p2m1"
 

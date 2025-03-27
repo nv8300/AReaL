@@ -723,9 +723,6 @@ def load_shuffle_split_dataset(
         if dataset_path.endswith(".jsonl"):
             with open(dataset_path, "r") as f:
                 data = [json.loads(ff) for ff in f]
-        elif dataset_path.endswith(".json"):
-            with open(dataset_path, "r") as f:
-                data = json.load(f)
         else:
             raise NotImplementedError(f"Unknown dataset extension: {dataset_path}")
     else:
