@@ -2,6 +2,9 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 
+# Initialize preset config before all submodules.
+from .base import prologue
+
 # Re-import these classes for clear documentation,
 # otherwise the name will have a long prefix like
 # realhf.api.quickstart.model.ModelTrainEvalConfig.

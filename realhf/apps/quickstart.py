@@ -8,9 +8,12 @@ import getpass
 import pathlib
 import re
 import sys
+import os
 
 import hydra
+from omegaconf import DictConfig, OmegaConf
 
+from realhf.base.preset import PRESET_FLAG_NAME, PRESET_FLAG_VAR_NAME, PRESET_EXTERNAL_CONFIG_NAME, get_experiment_name, get_trial_name
 from realhf.api.quickstart.entrypoint import QUICKSTART_FN
 from realhf.base.cluster import spec as cluster_spec
 from realhf.base.importing import import_module
@@ -34,31 +37,49 @@ def main():
             action="store_true",
             help="Show all legal CLI arguments for this experiment.",
         )
+        subparser.add_argument(
+            PRESET_FLAG_NAME,
+            type=str,
+            help="Set preset config (*.yaml) for this experiment.",
+        )
         subparser.set_defaults(func=v)
-    args = parser.parse_known_args()[0]
-    if args.show_args:
+    args = vars(parser.parse_known_args()[0])
+    if args["show_args"]:
         sys.argv = [sys.argv[0], "--help"]
-        QUICKSTART_FN[args.cmd]()
+        QUICKSTART_FN[args["cmd"]]()
         return
 
-    launch_hydra_task(args.cmd, QUICKSTART_FN[args.cmd])
+    experiment_name = ""
+    trial_name = ""
+
+    if args[PRESET_FLAG_VAR_NAME]:
+        config_dir, experiment_name, trial_name = prepare_hydra_config(args["cmd"], args[PRESET_FLAG_VAR_NAME])
+        sys.argv.remove(PRESET_FLAG_NAME)
+        sys.argv.remove(args[PRESET_FLAG_VAR_NAME])
+        sys.argv += [f"--config-path", f"{config_dir}"]
+    else:
+        experiment_name = get_experiment_name()
+        trial_name = get_trial_name()
+
+    launch_hydra_task(args["cmd"], experiment_name, trial_name, QUICKSTART_FN[args["cmd"]])
 
 
-def launch_hydra_task(name: str, func: hydra.TaskFunction):
+def prepare_hydra_config(name: str, preset_path: str):
+    config = OmegaConf.load(preset_path)
+    experiment_name = get_experiment_name(config.get("experiment_name"))
+    trial_name = get_trial_name(config.get("trial_name"))
+    config_dir = f"{cluster_spec.fileroot}/configs/{getpass.getuser()}/{experiment_name}/{trial_name}"
+
+    config.pop(PRESET_EXTERNAL_CONFIG_NAME)
+    with open(f"{config_dir}/{name}.yaml", "w") as f:
+        f.write(OmegaConf.to_yaml(config))
+
+    return (config_dir, experiment_name, trial_name)
+
+def launch_hydra_task(name: str, experiment_name: str, trial_name: str, func: hydra.TaskFunction):
     # Disable hydra logging.
     if not any("hydra/job_logging=disabled" in x for x in sys.argv):
         sys.argv += ["hydra/job_logging=disabled"]
-
-    if any("experiment_name=" in x for x in sys.argv):
-        experiment_name = next(x for x in sys.argv if "experiment_name=" in x).split(
-            "="
-        )[1]
-        if "_" in experiment_name:
-            raise RuntimeError("experiment_name should not contain `_`.")
-    else:
-        experiment_name = f"quickstart-{name}"
-        print(f"Experiment name not manually set. Default to {experiment_name}.")
-        sys.argv += [f"experiment_name={experiment_name}"]
 
     if (
         "--multirun" in sys.argv
@@ -66,14 +87,8 @@ def launch_hydra_task(name: str, func: hydra.TaskFunction):
         or "-m" in sys.argv
     ):
         raise NotImplementedError("Hydra multi-run is not supported.")
-    # non-multirun mode, add trial_name and hydra run dir
-    if any("trial_name=" in x for x in sys.argv):
-        trial_name = next(x for x in sys.argv if "trial_name=" in x).split("=")[1]
-    else:
-        trial_name = f"run{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
-        sys.argv += [f"trial_name={trial_name}"]
-    if "_" in trial_name:
-        raise RuntimeError("trial_name should not contain `_`.")
+
+    # non-multirun mode, add hydra run dir
     sys.argv += [
         f"hydra.run.dir={cluster_spec.fileroot}/logs/{getpass.getuser()}/"
         f"{experiment_name}/{trial_name}/hydra-outputs/"
