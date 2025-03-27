@@ -39,23 +39,22 @@ def process_code_data(file_path: str) -> List[Dict]:
     processed = []
 
     for item in raw_data:
-        try:
-            # Field extraction and transformation
-            input_output = json.loads(item["input_output"])
-            processed.append(
-                {
-                    "task": "code",
-                    "query_id": str(item["id"]),
-                    "prompt": item["question"],
-                    "input_output": {
+        # Field extraction and transformation
+        input_output = json.loads(item["input_output"])
+        processed.append(
+            {
+                "task": "code",
+                "query_id": str(item["id"]),
+                "prompt": item["question"],
+                "input_output": json.dumps(
+                    {
                         "inputs": input_output.get("inputs", []),
                         "outputs": input_output.get("outputs", []),
                         "fn_name": item.get("metadata", {}).get("fn_name", ""),
-                    },
-                }
-            )
-        except KeyError as e:
-            logger.warning(f"Skipping code item: Missing key {e}")
+                    }
+                ),
+            }
+        )
 
     return processed
 
@@ -69,17 +68,14 @@ def process_math_data(file_path: str) -> List[Dict]:
     processed = []
 
     for item in raw_data:
-        try:
-            processed.append(
-                {
-                    "task": "math",
-                    "query_id": str(item["query_id"]),
-                    "prompt": item["prompt"],
-                    "solutions": item["solutions"],
-                }
-            )
-        except KeyError as e:
-            logger.warning(f"Skipping math item: Missing key {e}")
+        processed.append(
+            {
+                "task": "math",
+                "query_id": str(item["query_id"]),
+                "prompt": item["prompt"],
+                "solutions": item["solutions"],
+            }
+        )
 
     return processed
 
@@ -91,7 +87,7 @@ def validate_raw_code(item: Dict) -> Tuple[bool, List[str]]:
         "task": str,
         "query_id": str,
         "prompt": str,
-        "input_output": (str, dict),
+        "input_output": str,
     }
 
     code_input_output_required = {
@@ -106,9 +102,7 @@ def validate_raw_code(item: Dict) -> Tuple[bool, List[str]]:
         elif not isinstance(item[field], typ):
             errors.append(f"Invalid type for {field}: expected {typ.__name__}")
 
-    input_output = item["input_output"]
-    if isinstance(item["input_output"], str):
-        input_output = json.loads(item["input_output"])
+    input_output = json.loads(item["input_output"])
 
     for io_field, io_typ in code_input_output_required.items():
         if io_field not in input_output:
@@ -151,17 +145,13 @@ def check_item_valid(raw_data: list):
         return defaultdict(int)
     logger.info(f"Validating code-math dataset...")
     total_stats = defaultdict(int)
-    try:
-        for index, item in enumerate(raw_data):
-            valid, errors = validate_raw_item(item)
-            if valid:
-                total_stats["valid"] += 1
-            else:
-                total_stats["invalid"] += 1
-                logger.debug(f"item {index}: {errors}")
-    except Exception as e:
-        logger.error(f"validation failed: {str(e)}")
-        return defaultdict(int)
+    for index, item in enumerate(raw_data):
+        valid, errors = validate_raw_item(item)
+        if valid:
+            total_stats["valid"] += 1
+        else:
+            total_stats["invalid"] += 1
+            logger.warning(f"item {index}: {errors}")
     return total_stats
 
 
@@ -184,13 +174,9 @@ def filter_shuffle(shuffle: bool, processed_data):
 
 
 def save_file(output_path: str, processed_data: list):
-    try:
-        with open(output_path, "w") as f:
-            for item in processed_data:
-                f.write(json.dumps(item) + "\n")
-    except IOError as e:
-        logger.error(f"Failed to write output: {str(e)}")
-        return
+    with open(output_path, "w") as f:
+        for item in processed_data:
+            f.write(json.dumps(item) + "\n")
 
 
 def main():
@@ -204,7 +190,7 @@ def main():
     parser.add_argument(
         "--mode",
         choices=["check", "process"],
-        default="process",
+        default="check",
         help="Operation mode: check raw data or process datasets",
     )
     parser.add_argument(
@@ -214,14 +200,9 @@ def main():
     args = parser.parse_args()
     if args.mode == "check":
         # Validate raw data structure
-        raw_data = (
-            load_jsonl(args.code)
-            if args.code
-            else [] + load_jsonl(args.math)
-            if args.codmathe
-            else []
-        )
-        total_stats = check_item_valid(raw_data)
+        code_data = load_jsonl(args.code) if args.code else []
+        math_data = load_jsonl(args.math) if args.math else []
+        total_stats = check_item_valid(code_data + math_data)
 
         # Print validation summary
         logger.info(
