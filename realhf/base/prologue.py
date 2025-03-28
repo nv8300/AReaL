@@ -30,7 +30,7 @@ def global_init():
         return
 
     # add externel envs.
-    if external_configs.envs is not None:
+    if external_configs.get("envs"):
         for key, value in external_configs.envs.items():
             if key not in os.environ:
                 os.environ[key] = value
@@ -38,8 +38,8 @@ def global_init():
     # resolve config path for cluster spec.
     cluster_spec_path = os.environ.get("CLUSTER_SPEC_PATH", "")
     if cluster_spec_path == "":
-        if external_configs.cluster_config is not None:
-            fileroot = external_configs.cluster_config.fileroot
+        if external_configs.get("cluster_config"):
+            fileroot = external_configs.cluster_config.get("fileroot")
             if fileroot is not None and fileroot != "":
                 experiment_name = get_experiment_name(config.get("experiment_name"))
                 trial_name = get_trial_name(config.get("trial_name"))

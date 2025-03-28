@@ -131,8 +131,9 @@ def prepare_hydra_config(name: str, prologue_path: str):
     experiment_name = get_experiment_name(config.get("experiment_name"))
     trial_name = get_trial_name(config.get("trial_name"))
     config_dir = f"{cluster_spec.fileroot}/configs/{getpass.getuser()}/{experiment_name}/{trial_name}"
+    os.makedirs(config_dir, exist_ok=True)
 
-    config.pop(PROLOGUE_EXTERNAL_CONFIG_NAME)
+    config.pop(PROLOGUE_EXTERNAL_CONFIG_NAME, {})
     with open(f"{config_dir}/{name}.yaml", "w") as f:
         f.write(OmegaConf.to_yaml(config))
 
