@@ -19,9 +19,9 @@ def global_init():
     args = vars(parser.parse_known_args()[0])
     if args[PROLOGUE_FLAG_VAR_NAME] is None:
         return
-    PROLOGUE_path = args[PROLOGUE_FLAG_VAR_NAME]
+    prologue_path = args[PROLOGUE_FLAG_VAR_NAME]
 
-    config = OmegaConf.load(PROLOGUE_path)
+    config = OmegaConf.load(prologue_path)
     external_configs = config.get(PROLOGUE_EXTERNAL_CONFIG_NAME)
 
     if external_configs is None:

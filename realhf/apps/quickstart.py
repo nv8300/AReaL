@@ -64,8 +64,8 @@ def main():
     launch_hydra_task(args["cmd"], experiment_name, trial_name, QUICKSTART_FN[args["cmd"]])
 
 
-def prepare_hydra_config(name: str, PROLOGUE_path: str):
-    config = OmegaConf.load(PROLOGUE_path)
+def prepare_hydra_config(name: str, prologue_path: str):
+    config = OmegaConf.load(prologue_path)
     experiment_name = get_experiment_name(config.get("experiment_name"))
     trial_name = get_trial_name(config.get("trial_name"))
     config_dir = f"{cluster_spec.fileroot}/configs/{getpass.getuser()}/{experiment_name}/{trial_name}"
