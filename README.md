@@ -31,7 +31,7 @@ In our boba release, we highlight the 3 most important milestones:
 + A SOTA 7B math reasoning model
 + A particularly competitive 32B model that can be trained with extremely low cost.
 
-For the complete training and model details, please check [our v0.2 technical blog](/blog/AReaL_v0_2.md). 
+For the complete training and model details, please check our [v0.2 technical blog](/blog/AReaL_v0_2.md). 
 
 ### SGLang support with 1.5x speedup on 7B Training
 note: vs v0.1
