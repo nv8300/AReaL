@@ -59,10 +59,9 @@ class GlobalMemoryBuffer:
         return res
 
 
-# 30 minutes. Transferring super-large batches via NCCL bcast
-# for the first time may consumer over 600 secs, which is the
-# pytorch's default. Increase this value to 30 minutes.
-NCCL_DEFAULT_TIMEOUT = datetime.timedelta(seconds=1800)
+# For large models, generation may consume more than 3600s.
+# We set a large value to avoid NCCL timeout issues during generaiton.
+NCCL_DEFAULT_TIMEOUT = datetime.timedelta(seconds=7200)
 
 # We may want to use CPU for testing even when CUDA is available.
 TORCH_FORCE_CPU = False
