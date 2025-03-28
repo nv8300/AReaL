@@ -12,7 +12,7 @@
 + 🔪 **<font style="color:rgb(31, 35, 40);">Cutting-Edge Performances:</font>**<font style="color:rgb(31, 35, 40);"> AReaL can produce models with cutting-edge reasoning capabilities. We are actively working on other domains, such as coding and agent, as well. </font>
 
 <h2 id="news"><font style="color:rgb(31, 35, 40);">News</font></h2>
-**<font style="color:rgb(31, 35, 40);">[2025/03/31]</font>**<font style="color:rgb(31, 35, 40);"> </font>**<font style="color:rgb(31, 35, 40);">(v0.2, nickname Boba)</font>**<font style="color:rgb(31, 35, 40);"> Our milestone release Boba! Please call it A-ReaL-Boba! This release includes much accelerated training with SGLang support and SOTA 7B and 32B models on math reasoning. </font>
+**<font style="color:rgb(31, 35, 40);">[2025/03/31] (v0.2, nickname Boba)</font>**<font style="color:rgb(31, 35, 40);"> Our milestone release Boba! Please call it A-ReaL-Boba! This release includes much accelerated training with SGLang support and SOTA 7B and 32B models on math reasoning. </font>
 
 **<font style="color:rgb(31, 35, 40);">[2025/02/24] (v0.1)</font>**<font style="color:rgb(31, 35, 40);"> Our initial release includes reproducible results for 1.5B and 7B LRMs. Check our </font>[v0.1 technical blog](/blog/AReaL_v0_1.md)<font style="color:rgb(31, 35, 40);">.</font>
 
