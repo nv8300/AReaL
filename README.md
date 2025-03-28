@@ -2,7 +2,12 @@
 <em>AReaL</em>: A fully open-sourced and inclusive RL project for large reasoning models
 </h1>
 
-![](/assets/logo.jpeg)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="/assets/logo.png">
+    <img alt="ReaL" src="/assets/logo.png" width="20%">
+  </picture>
+</p>
 
 AReaL (Ant Reasoning RL) is an open-sourced and efficient reinforcement learning training system for large reasoning models developed at **the RL Lab, Ant Research**, built upon the open-source project [RealHF](https://github.com/openpsi-project/ReaLHF). With a 100% open-source commitment, including data, training details, infra, and models, AReaL aims to help everyone build their own AI agents easily with a low cost.  Our team likes milk tea. We hope people will like our project just like a-real-milk tea.
 
@@ -79,7 +84,7 @@ AReaL is under active development. We will have major releases in a weekly manne
 ### Algorithm Development
 - [ ] The training receipe for 32B models.
 - [ ] Multi-task RL training.
-- [ ] Agentic capabilities with end-to-end RL.
+- [ ] Improving agentic capabilities with end-to-end RL.
 - [ ] Stable RL training for larger MOE models.
 
 ## Acknowledgement
@@ -88,7 +93,7 @@ We would like to remark that major contributors are from **RL Lab at Ant Researc
 
 Our team has also received invaluable assistance from the Super Computing Technology (SCT) team at Ant Group, particularly in the realm of large-scale cluster operations and maintenance. 
 
-We also appreciate all the pioneer works from the community, particularly the [ReaLHF](https://github.com/openpsi-project/ReaLHF) project from OpenPsi Inc. and those other projects, including but not limited to, [DeepScaleR](https://github.com/agentica-project/deepscaler), [Open-Reasoner-Zero](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero/tree/main), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [VeRL](https://github.com/volcengine/verl), and [SGLang](https://github.com/sgl-project/sglang).
+We also appreciate all the pioneer works from the community, particularly the [ReaLHF](https://github.com/openpsi-project/ReaLHF) project from OpenPsi Inc. and those other projects, including but not limited to, [DeepScaleR](https://github.com/agentica-project/deepscaler), [Open-Reasoner-Zero](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero/tree/main), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [veRL](https://github.com/volcengine/verl), and [SGLang](https://github.com/sgl-project/sglang).
 
 ## Citation
 ```plain
