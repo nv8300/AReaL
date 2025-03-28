@@ -28,6 +28,9 @@ from .api.quickstart.model import (
     OptimizerConfig,
     ParallelismConfig,
 )
+
+# Initialize preset config before all submodules.
+from .base import prologue
 from .experiments.common.common import CommonExperimentConfig, ExperimentSaveEvalControl
 from .experiments.common.ppo_math_exp import PPOHyperparameters, PPOMATHConfig
 from .experiments.common.sft_exp import SFTConfig
