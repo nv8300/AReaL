@@ -47,10 +47,11 @@ def remove_prefix(text: str, prefix: str) -> str:
     return text[len(prefix) :] if text.startswith(prefix) else text
 
 
-if pkg_version.is_version_greater_or_equal("sglang", "0.4.4"):
-    SGLANG_TOKEN_OUTPUT_IDENTIFIER = "output_ids"
-else:
-    SGLANG_TOKEN_OUTPUT_IDENTIFIER = "token_ids"
+if pkg_version.is_available("sglang"):
+    if pkg_version.is_version_greater_or_equal("sglang", "0.4.4"):
+        SGLANG_TOKEN_OUTPUT_IDENTIFIER = "output_ids"
+    else:
+        SGLANG_TOKEN_OUTPUT_IDENTIFIER = "token_ids"
 
 
 class SGLangAPIClient(LLMAPIClient):
@@ -168,7 +169,7 @@ def sglang_server_process(server_args_dict):
         server_args_dict.pop("cuda_graph_bs")
         server_args_dict.pop("enable_memory_saver")
         server_args_dict.pop("allow_auto_truncate")
-        server_args_dict.pop("return_hidden_states")
+        server_args_dict.pop("file_storage_path")
     else:
         from sglang.srt.entrypoints.http_server import launch_server
 

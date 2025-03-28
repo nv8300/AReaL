@@ -1,10 +1,14 @@
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as get_version
 
 from packaging.version import Version
 
 
 def is_available(pkg_name):
-    return bool(get_version(pkg_name))
+    try:
+        return bool(get_version(pkg_name))
+    except PackageNotFoundError:
+        return False
 
 
 def compare_versions(version1: str, version2: str) -> int:

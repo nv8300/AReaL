@@ -18,11 +18,7 @@ from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from realhf.api.core import model_api
 from realhf.api.core.data_api import MicroBatchSpec, SequenceSample
-from realhf.api.quickstart.model import (
-    DistributedDataParallelConfig,
-    MegatronConfig,
-    OptimizerConfig,
-)
+from realhf.api.quickstart.model import MegatronConfig, OptimizerConfig
 from realhf.base import constants, logging, pkg_version
 from realhf.base.datapack import flat2d
 from realhf.base.monitor import CUDATimeMarkType, cuda_tmarked
@@ -555,6 +551,8 @@ class MegatronTrainBackend(model_api.ModelBackend, MegatronConfig):
                 from megatron.core.distributed.distributed_data_parallel_config import (
                     DistributedDataParallelConfig,
                 )
+            else:
+                from realhf.api.quickstart.model import DistributedDataParallelConfig
             self.ddp = DistributedDataParallelConfig(**self.ddp)
         with megatron_ctx():
             if pkg_version.is_version_less("megatron.core", "0.7.0"):
