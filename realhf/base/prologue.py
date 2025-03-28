@@ -2,16 +2,18 @@
 # Licensed under the Apache License, Version 2.0 (the "License").
 
 import argparse
-import getpass
-import sys
 import datetime
-import os
+import getpass
 import json
+import os
+import sys
+
 from omegaconf import DictConfig, OmegaConf
 
 PROLOGUE_FLAG_NAME = "--config"
 PROLOGUE_FLAG_VAR_NAME = "config"
 PROLOGUE_EXTERNAL_CONFIG_NAME = "external_configs"
+
 
 def global_init():
     parser = argparse.ArgumentParser(add_help=False)
@@ -53,6 +55,7 @@ def global_init():
                     json.dump(cluster_spec, f)
                 os.environ["CLUSTER_SPEC_PATH"] = cluster_spec_path
 
+
 def get_experiment_name(default_name: str = ""):
     if any("experiment_name=" in x for x in sys.argv):
         experiment_name = next(x for x in sys.argv if "experiment_name=" in x).split(
@@ -60,12 +63,13 @@ def get_experiment_name(default_name: str = ""):
         )[1]
     else:
         experiment_name = default_name
-        if experiment_name  == "":
+        if experiment_name == "":
             experiment_name = f"quickstart-experiment"
 
     if "_" in experiment_name:
         raise RuntimeError("experiment_name should not contain `_`.")
     return experiment_name
+
 
 def get_trial_name(default_name: str = ""):
     if any("trial_name=" in x for x in sys.argv):

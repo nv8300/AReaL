@@ -5,18 +5,24 @@
 import argparse
 import datetime
 import getpass
+import os
 import pathlib
 import re
 import sys
-import os
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from realhf.base.prologue import PROLOGUE_FLAG_NAME, PROLOGUE_FLAG_VAR_NAME, PROLOGUE_EXTERNAL_CONFIG_NAME, get_experiment_name, get_trial_name
 from realhf.api.quickstart.entrypoint import QUICKSTART_FN
 from realhf.base.cluster import spec as cluster_spec
 from realhf.base.importing import import_module
+from realhf.base.prologue import (
+    PROLOGUE_EXTERNAL_CONFIG_NAME,
+    PROLOGUE_FLAG_NAME,
+    PROLOGUE_FLAG_VAR_NAME,
+    get_experiment_name,
+    get_trial_name,
+)
 
 # NOTE: Register all implemented experiments inside ReaL.
 import_module(
@@ -53,7 +59,9 @@ def main():
     trial_name = ""
 
     if args[PROLOGUE_FLAG_VAR_NAME]:
-        config_dir, experiment_name, trial_name = prepare_hydra_config(args["cmd"], args[PROLOGUE_FLAG_VAR_NAME])
+        config_dir, experiment_name, trial_name = prepare_hydra_config(
+            args["cmd"], args[PROLOGUE_FLAG_VAR_NAME]
+        )
         sys.argv.remove(PROLOGUE_FLAG_NAME)
         sys.argv.remove(args[PROLOGUE_FLAG_VAR_NAME])
         sys.argv += [f"--config-path", f"{config_dir}"]
@@ -61,7 +69,9 @@ def main():
         experiment_name = get_experiment_name()
         trial_name = get_trial_name()
 
-    launch_hydra_task(args["cmd"], experiment_name, trial_name, QUICKSTART_FN[args["cmd"]])
+    launch_hydra_task(
+        args["cmd"], experiment_name, trial_name, QUICKSTART_FN[args["cmd"]]
+    )
 
 
 def prepare_hydra_config(name: str, prologue_path: str):
@@ -76,7 +86,10 @@ def prepare_hydra_config(name: str, prologue_path: str):
 
     return (config_dir, experiment_name, trial_name)
 
-def launch_hydra_task(name: str, experiment_name: str, trial_name: str, func: hydra.TaskFunction):
+
+def launch_hydra_task(
+    name: str, experiment_name: str, trial_name: str, func: hydra.TaskFunction
+):
     # Disable hydra logging.
     if not any("hydra/job_logging=disabled" in x for x in sys.argv):
         sys.argv += ["hydra/job_logging=disabled"]

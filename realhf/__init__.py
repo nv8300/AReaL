@@ -2,9 +2,6 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 
-# Initialize preset config before all submodules.
-from .base import prologue
-
 # Re-import these classes for clear documentation,
 # otherwise the name will have a long prefix like
 # realhf.api.quickstart.model.ModelTrainEvalConfig.
@@ -31,6 +28,9 @@ from .api.quickstart.model import (
     OptimizerConfig,
     ParallelismConfig,
 )
+
+# Initialize preset config before all submodules.
+from .base import prologue
 from .experiments.common.common import CommonExperimentConfig, ExperimentSaveEvalControl
 from .experiments.common.ppo_math_exp import PPOHyperparameters, PPOMATHConfig
 from .experiments.common.sft_exp import SFTConfig
