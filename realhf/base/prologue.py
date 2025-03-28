@@ -9,20 +9,20 @@ import os
 import json
 from omegaconf import DictConfig, OmegaConf
 
-PRESET_FLAG_NAME = "--config"
-PRESET_FLAG_VAR_NAME = "config"
-PRESET_EXTERNAL_CONFIG_NAME = "external_configs"
+PROLOGUE_FLAG_NAME = "--config"
+PROLOGUE_FLAG_VAR_NAME = "config"
+PROLOGUE_EXTERNAL_CONFIG_NAME = "external_configs"
 
 def global_init():
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument(PRESET_FLAG_NAME)
+    parser.add_argument(PROLOGUE_FLAG_NAME)
     args = vars(parser.parse_known_args()[0])
-    if args[PRESET_FLAG_VAR_NAME] is None:
+    if args[PROLOGUE_FLAG_VAR_NAME] is None:
         return
-    preset_path = args[PRESET_FLAG_VAR_NAME]
+    PROLOGUE_path = args[PROLOGUE_FLAG_VAR_NAME]
 
-    config = OmegaConf.load(preset_path)
-    external_configs = config.get(PRESET_EXTERNAL_CONFIG_NAME)
+    config = OmegaConf.load(PROLOGUE_path)
+    external_configs = config.get(PROLOGUE_EXTERNAL_CONFIG_NAME)
 
     if external_configs is None:
         return
