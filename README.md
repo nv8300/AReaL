@@ -34,7 +34,9 @@ In our boba release, we highlight the 3 most important milestones:
 For the complete training and model details, please check our [v0.2 technical blog](/blog/AReaL_v0_2.md). 
 
 ### SGLang support with 1.5x speedup on 7B Training
-note: vs v0.1
+
+![throughput_comparision_with_v0.1.0.png](/assets/thpt_comparison.png) 
+
 
 ### SOTA 7B model using RL on math reasoning
 | Model  | AIME 2024 | AIME 2025 | GPQA |
