@@ -4,13 +4,10 @@ import json
 import os
 import signal
 import subprocess
-import time
-import traceback
 import uuid
 from typing import *
 
 from realhf.base import logging
-from realhf.base.constants import parallelism_rank
 
 logger = logging.getLogger("math parser")
 
@@ -48,20 +45,7 @@ def loadJson(dataDir):
     return samples
 
 
-headers = {
-    "Content-Type": "application/json",
-}
-
-id2info = None
-
-
-def parse_line(prompt_str, generated, query_id):
-    global id2info
-    if id2info is None:
-        try:
-            id2info = loadJson(os.environ["REAL_MATH_METADATA_PATH"])
-        except KeyError as e:
-            raise KeyError("The json file REAL_MATH_METADATA_PATH is not set") from e
+def parse_line(id2info, prompt_str, generated, query_id):
     info = id2info[query_id.split("@idx:")[0]]
 
     tmp_id = str(uuid.uuid4())
@@ -112,17 +96,12 @@ def parse_line(prompt_str, generated, query_id):
 
 
 def parse_lines_in_parallel(
+    id2info,
     generateds: List,
     query_ids: List,
     max_workers=22,
     check_xml_format=False,
 ) -> List:
-    global id2info
-    if id2info is None:
-        try:
-            id2info = loadJson(os.environ["REAL_MATH_METADATA_PATH"])
-        except KeyError as e:
-            raise KeyError("The json file REAL_MATH_METADATA_PATH is not set") from e
     assert len(generateds) == len(query_ids), (
         len(generateds),
         len(query_ids),
@@ -204,17 +183,19 @@ def parse_lines_in_parallel(
 
 if __name__ == "__main__":
     sample = {
-        "prompt": "",
-        "query_id": "35ecd821a9e7e31da9ef0663a25347ce",
-        # "answer_in_box": ["\\boxed{\\frac{1}{2}}", "<think></think><answer>\\boxed{\\frac{1}{2}}</answer>"]
-        "answer": "<think>\n1. The problem requires us to determine the number of sequences of 144 hand movements such that every position appears exactly once and the hands return to the initial position at the end.\n2. We know that each movement involves one hand moving clockwise to the next number while the other hand stays in place.\n3. Considering the 12-hour clock, we can represent each positioning of the hands as a combination of the positions of both hands. Since both hands can be in any of the 12 positions, there are 12 x 12 = 144 different positionings.\n4. Given that at each position only one hand moves, every single movement is unique, leading to a total of 144 unique movements.\n5. These 144 movements must form a Hamiltonian Cycle, where each edge represents a valid movement between two positions.\n6. The problem thus reduces to finding a Hamiltonian cycle in a directed graph. Since the appearance of each movement is unique, it also determines the direction of the movement.\n7. We consider the edges that are rotations of each other as equivalent. Taking the rotational symmetry into account, we have 144/12 = 12 equivalence classes.\n8. The problem now is to determine the number of ways to arrange these 12 classes of rotations in a circle, which is 11 factorial.\n9. We must find the value of 11! and then compute the result modulo 1000.\n</think>\n<answer>\n320\n</answer>",
+        "answers": ["-\\frac{2}{3}"],
+        "solutions": [
+            "1. **Apply the operation $\\otimes$ to the innermost parentheses first:**\n   \\[\n   (1 \\otimes 2) \\otimes 3 = \\left(\\frac{1^2}{2}\\right) \\otimes 3 = \\frac{1}{2} \\otimes 3\n   \\]\n   \\[\n   1 \\otimes (2 \\otimes 3) = 1 \\otimes \\left(\\frac{2^2}{3}\\right) = 1 \\otimes \\frac{4}{3}\n   \\]\n\n2. **Calculate each part using the definition of $\\otimes$:**\n   \\[\n   \\frac{1}{2} \\otimes 3 = \\frac{\\left(\\frac{1}{2}\\right)^2}{3} = \\frac{\\frac{1}{4}}{3} = \\frac{1}{12}\n   \\]\n   \\[\n   1 \\otimes \\frac{4}{3} = \\frac{1^2}{\\frac{4}{3}} = \\frac{1}{\\frac{4}{3}} = \\frac{3}{4}\n   \\]\n\n3. **Subtract the two results:**\n   \\[\n   \\left(\\frac{1}{12}\\right) - \\left(\\frac{3}{4}\\right) = \\frac{1}{12} - \\frac{9}{12} = -\\frac{8}{12} = -\\frac{2}{3}\n   \\]\n\n4. **Conclude with the final answer:**\n   \\[\n   \\boxed{A}\n   \\]",
+            "\\boxed{-\\frac{2}{3}}",
+        ],
     }
+    id2info = {"fe11b471-1aa9-4867-958f-a0a811c85f92": sample}
 
     print(
         parse_lines_in_parallel(
-            # [sample["answer_in_box"][0] for _ in range(50)] + [sample["answer_in_box"][1] for _ in range(50)],
-            [sample["answer"]] * 100,
-            [sample["query_id"] for _ in range(100)],
+            id2info,
+            sample["answers"] * 100,
+            ["fe11b471-1aa9-4867-958f-a0a811c85f92" for _ in range(100)],
             max_workers=8,
             check_xml_format=True,
         )

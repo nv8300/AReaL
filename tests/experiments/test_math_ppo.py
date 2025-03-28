@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import uuid
 from typing import *
 
 import pytest
@@ -27,23 +28,25 @@ def model_class(request):
 
 
 @pytest.fixture(params=[testing.TESTING_DATASET_SIZE])
-def math_dataset(request, save_path):
-    with open(os.getenv("REAL_MATH_METADATA_PATH"), "r") as f:
-        query_ids = list(json.load(f).keys())
+def math_code_dataset(request, save_path):
     size = request.param
     max_prompt_len = 8
     max_resp_len = 8
     dataset = []
     for i in range(size):
         prompt_len = random.randint(1, max_prompt_len)
-        n_pairs = random.randint(1, 5)
         d = dict(
-            query_id=query_ids[i],
+            query_id=str(uuid.uuid4()),
             prompt=generate_random_sentence(prompt_len),
+            task=random.choice(["math", "code"]),
         )
+        if d["task"] == "math":
+            d["solutions"] = [generate_random_sentence(max_resp_len)]
+        elif d["task"] == "code":
+            d["input_output"] = json.dumps(dict(inputs=["the\n"], outputs=["the\n"]))
         dataset.append(d)
-    with open(str(save_path / "math_dataset.json"), "w") as f:
-        json.dump(dataset, f)
+        with open(str(save_path / "math_code_dataset.jsonl"), "a") as f:
+            f.write(json.dumps(d) + "\n")
     return dataset
 
 
@@ -59,7 +62,7 @@ def math_dataset(request, save_path):
 def test_ppo_symm(
     tmp_path_factory,
     tokenizer,
-    math_dataset,
+    math_code_dataset,
     save_path,
     cpu_hf_model,
     mconfig,
@@ -97,13 +100,8 @@ def test_ppo_symm(
             init_critic_from_actor=True,
             backend="mock_train",
         ),
-        rew=ModelTrainEvalConfig(
-            path=str(save_path),
-            init_critic_from_actor=True,
-            init_from_scratch=True,
-        ),
         dataset=PromptOnlyDatasetConfig(
-            path=str(save_path / "math_dataset.json"),
+            path=str(save_path / "math_code_dataset.jsonl"),
             max_prompt_len=mconfig.n_positions // 2,
             train_bs_n_seqs=minbs,
             fill_to_max_length=False,
@@ -116,6 +114,7 @@ def test_ppo_symm(
                 use_cuda_graph=False,
             ),
         ),
+        group_size=2,
     )
 
     run_test_exp(exp_cfg)
@@ -133,7 +132,7 @@ def test_ppo_symm(
 def test_ppo_global_reshard(
     tmp_path_factory,
     tokenizer,
-    math_dataset,
+    math_code_dataset,
     save_path,
     cpu_hf_model,
     mconfig,
@@ -180,7 +179,7 @@ def test_ppo_global_reshard(
             init_from_scratch=True,
         ),
         dataset=PromptOnlyDatasetConfig(
-            path=str(save_path / "math_dataset.json"),
+            path=str(save_path / "math_code_dataset.jsonl"),
             max_prompt_len=mconfig.n_positions // 2,
             train_bs_n_seqs=minbs,
             fill_to_max_length=False,
@@ -249,7 +248,7 @@ def test_ppo_global_reshard(
 def test_ppo_param_realloc_sub_device_mesh(
     tmp_path_factory,
     tokenizer,
-    math_dataset,
+    math_code_dataset,
     save_path,
     cpu_hf_model,
     mconfig,
@@ -292,7 +291,7 @@ def test_ppo_param_realloc_sub_device_mesh(
             init_from_scratch=True,
         ),
         dataset=PromptOnlyDatasetConfig(
-            path=str(save_path / "math_dataset.json"),
+            path=str(save_path / "math_code_dataset.jsonl"),
             max_prompt_len=mconfig.n_positions // 2,
             train_bs_n_seqs=minbs,
             fill_to_max_length=False,
@@ -410,7 +409,7 @@ def test_ppo_save(
             init_from_scratch=True,
         ),
         dataset=PromptOnlyDatasetConfig(
-            path=str(save_path / "math_dataset.json"),
+            path=str(save_path / "math_code_dataset.jsonl"),
             max_prompt_len=mconfig.n_positions // 2,
             train_bs_n_seqs=bs,
             fill_to_max_length=False,

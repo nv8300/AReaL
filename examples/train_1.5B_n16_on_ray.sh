@@ -6,7 +6,7 @@ TRAIN_BATCH_SIZE="1024"
 GROUP_SIZE="8"
 NODES="16"
 ALLOCATION_MODE="vllm.d64p1m1+d32p2m1"
-MAX_NEW_TOKENS=$4
+MAX_NEW_TOKENS=$3
 MAX_NUM_SEQS=128
 PPO_MBS=4
 KL_CTL=0.001
@@ -18,7 +18,6 @@ BASE_MODEL_PATH="$1"
 
 # original data
 DATA_PATH="$2"
-REAL_MATH_METADATA_PATH="$3"
 
 # Option 1: The experiment runs locally with subprocesses.
 # MODE=local
@@ -53,7 +52,6 @@ TRIAL_NAME="${TRAIN_BATCH_SIZE}x${GROUP_SIZE}-n${NODES}"
 # It's the user's responsibility to tune them appropriately.
 unset CLUSTER_SPEC_PATH
 CLUSTER_SPEC_PATH=/storage/ray/cluster_config_on_ray.json \
-REAL_MATH_METADATA_PATH=${REAL_MATH_METADATA_PATH} \
 REAL_GPU_MEMORY_KILL_THRESHOLD=1 \
 python3 -m realhf.apps.quickstart ppo-math \
     mode=$MODE \

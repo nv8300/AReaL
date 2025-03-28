@@ -1,5 +1,6 @@
 import json
 import os
+import random
 from collections import defaultdict
 
 from functioncall.base import logging
@@ -8,29 +9,14 @@ from functioncall.base.call import batch_function_call
 logger = logging.getLogger("Functioncall")
 
 
-def try_load_json(data):
-    """
-    Attempts to load the given data as JSON. If successful, returns the parsed JSON.
-    Otherwise, returns None and logs an error.
-    """
-    try:
-        loaded_data = json.loads(data)
-        return loaded_data
-    except json.JSONDecodeError as e:
-        # print(f"Failed to load JSON: {e}")
-        return data
-
-
-def load_problems_with_testcase_batch(path, debug=False, test_case_batch_size=None):
+def load_problems_with_testcase_batch(
+    id2info, query_ids, debug=False, test_case_batch_size=None
+):
     problem_map = defaultdict(list)
-    for idx, line in enumerate(open(path, "rb")):
-        if line is None:
-            continue
-
+    for idx, query_id in enumerate(query_ids):
+        problem = id2info[query_id]
         # parse one problem
-        row = json.loads(line.strip().decode("utf-8"))
-        query_id = str(row.get("id", row.get("query_id")))
-        input_output = json.loads(row["input_output"]) if "input_output" in row else {}
+        input_output = json.loads(problem["input_output"])
         inputs = input_output.get("inputs", [])
         outputs = input_output.get("outputs", [])
         assert len(inputs) == len(
@@ -57,17 +43,14 @@ def load_problems_with_testcase_batch(path, debug=False, test_case_batch_size=No
                 "batche_index": batch_idx,
             }
             if debug:
-                sub_problem["solutions"] = row.get("solutions", [])
+                sub_problem["solutions"] = problem.get("solutions", [])
             problem_map[query_id].append(sub_problem)
 
     return problem_map
 
 
-global_problems = None
-
-
 def code_verify(
-    generateds, query_ids, debug=False, timeout=1000, timeout_for_testcase=6
+    id2info, generateds, query_ids, debug=False, timeout=1000, timeout_for_testcase=6
 ):
     assert len(generateds) == len(query_ids), (
         len(generateds),
@@ -75,24 +58,13 @@ def code_verify(
     )
     payload_list = []
 
-    global global_problems
-    if global_problems is None:
-        global_problems = load_problems_with_testcase_batch(
-            os.getenv(
-                "REAL_CODE_METADATA_PATH",
-                "/storage/datasets/codeparrot-apps-test.jsonl",
-            ),
-            debug=True,
-            test_case_batch_size=20,
-        )
+    global_problems = load_problems_with_testcase_batch(
+        id2info,
+        query_ids,
+        debug=True,
+        test_case_batch_size=20,
+    )
     for idx, query_id in enumerate(query_ids):
-        if query_id not in global_problems:
-            payload_list.append(None)
-            logger.warning(
-                f"Invalid query id : {query_id}, type: {type(query_id)}, should be in problem dataset!"
-            )
-            continue
-
         problems = global_problems[query_id]
         for problem in problems:
             payload_list.append(
@@ -129,34 +101,28 @@ def code_verify(
 
 
 if __name__ == "__main__":
+    path = "/storage/openpsi/data/code/apps/codeparrot-apps-test.jsonl"
+    data = []
+    with open(path, "r") as f:
+        code_data = [json.loads(l) for l in f.readlines()]
+
+    id2info = {}
 
     def create_test_params(count=10):
-        global global_problems
-        if global_problems is None:
-            global_problems = load_problems_with_testcase_batch(
-                os.getenv(
-                    "REAL_CODE_METADATA_PATH",
-                    "/storage/datasets/codeparrot-apps-test.jsonl",
-                ),
-                debug=True,
-                test_case_batch_size=20,
-            )
-        codes, query_ids = [], []
-        idx = 0
-        for query_id, problems in global_problems.items():
-            if idx >= count:
-                break
-
-            problem = problems[0]
-            if "solutions" not in problem or not problem["solutions"]:
+        global id2info
+        query_ids = []
+        generateds = []
+        cnt = 0
+        while cnt < count:
+            d = random.choice(code_data)
+            if not d["solutions"]:
                 continue
+            id2info[d["id"]] = d
+            query_ids.append(d["id"])
+            generateds.append(d["solutions"][0])
+            cnt += 1
+        return generateds, query_ids
 
-            codes.append(try_load_json(problem["solutions"])[0])
-            query_ids.append(query_id)
-            idx += 1
-
-        return codes, query_ids
-
-    codes, query_ids = create_test_params(100)
-    result = code_verify(codes, query_ids, True)
+    generateds, query_ids = create_test_params(100)
+    result = code_verify(id2info, generateds, query_ids, True)
     print(result)

@@ -4,7 +4,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 EXP_NAME=ppo-zero-7B-zero-n16
 MODEL_NAME="Qwen2.5-7B"
-DATASET_NAME="prompts_for_zero.jsonl"
+DATASET_NAME="full_orz_zero.jsonl"
 NODES=16
 ALLOCATION_MODE="vllm.d64p1m1+d32p2m1"
 

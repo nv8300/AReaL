@@ -5,25 +5,12 @@ import sys
 import time
 import traceback
 from io import StringIO
-
-from function.testing_util import run_test
+from typing import Dict, List
 
 from functioncall.base import logging
+from functioncall.code.function.testing_util import run_test
 
 logger = logging.getLogger("Functioncall")
-
-
-def try_load_json(data):
-    """
-    Attempts to load the given data as JSON. If successful, returns the parsed JSON.
-    Otherwise, returns None and logs an error.
-    """
-    try:
-        loaded_data = json.loads(data)
-        return loaded_data
-    except json.JSONDecodeError as e:
-        logger.info(f"Failed to load JSON: {e}")
-        return data
 
 
 def capture_stdout(code):
@@ -31,12 +18,12 @@ def capture_stdout(code):
     fake_stdout = StringIO()
 
     try:
-        sys.stdout = fake_stdout  # 重定向输出
-        exec(code, {"__builtins__": __builtins__})  # 在隔离环境中执行
+        sys.stdout = fake_stdout
+        exec(code, {"__builtins__": __builtins__})
     except Exception as e:
         return f"error: {str(e)}, traceback: {traceback.format_exc()}"
     finally:
-        sys.stdout = original_stdout  # 恢复原stdout
+        sys.stdout = original_stdout
     return fake_stdout.getvalue()
 
 
@@ -46,12 +33,17 @@ def _temp_run(problem, generation, debug, result):
     try:
         if debug:
             logger.debug(f"Running test for problem: {problem}")
-        result.append(run_test(sample=problem, test=generation, debug=debug))
+        r = run_test(sample=problem, test=generation, debug=debug)
+        result.append(r)
         if debug:
             logger.debug(f"Test completed with result: {result}")
     except Exception as e:
-        if debug:
-            logger.error(f"Error in _temp_run: {e}, problem:{problem}", exe_info=True)
+
+        logger.warning(
+            f"Error in _temp_run: {e}\n"
+            f"traceback: {''.join(traceback.format_exception(*sys.exc_info()))}\n"
+            f"problem:{problem}"
+        )
 
     execution_time = time.time() - start_time
     logger.info(
@@ -64,8 +56,9 @@ def check_correctness(problem, generation, timeout, debug=False):
     The global timeout is to catch some extreme/rare cases not handled by the timeouts
     inside `run_test`"""
     if debug:
+        # FIXME: error variable "problem" is not defined
         result = capture_stdout(
-            "from function.testing_util import run_test\n"
+            "from functioncall.code.function.testing_util import run_test\n"
             + "run_test(sample=problem, test=generation, debug=debug)"
         )
         return result[0], result[1]
@@ -86,7 +79,7 @@ def check_correctness(problem, generation, timeout, debug=False):
         # Remark: ideally we would consider that all tests failed but we can't access number of tests here easily
         # so we use 21=the average number of tests for a smaple in the test split instead
         avg_number_tests = 21
-        result = [[-1] * avg_number_tests]
+        result = [[-1 for _ in range(avg_number_tests)], {}]
         if debug:
             logger.debug(f"Global timeout occurred, returning default result.")
     if debug:
@@ -99,96 +92,56 @@ def check_correctness(problem, generation, timeout, debug=False):
     return result[0]
 
 
-def load_problems(path):
-    problem_map = {}
-    for idx, line in enumerate(open(path, "rb")):
-        if line is not None:
-            line = line.strip().decode("utf-8")
-            row = json.loads(line)
-
-            query_id = str(row["id"])
-            problem_map[query_id] = {
-                "problem_id": query_id,
-                # "question": row["question"],
-                "solutions": row["solutions"],
-                "input_output": row["input_output"],
-                # "difficulty": level,
-                # "url": row["url"],
-                # "starter_code": row["starter_code"],
-            }
-
-    return problem_map
-
-
-global_problems = load_problems(
-    os.getenv(
-        "REAL_CODE_METADATA_PATH",
-        "/storage/datasets/codeparrot-apps-test.jsonl",
-    )
-)
-
-
-def code_verify(generateds, query_ids, debug=False):
-    assert len(generateds) == len(query_ids), (
-        len(generateds),
-        len(query_ids),
-    )
+def code_verify(id2info, generateds, query_ids, debug=False):
+    assert len(generateds) == len(query_ids)
+    problems = [id2info[qid] for qid in query_ids]
 
     result = []
-    global global_problems
 
-    for idx, query_id in enumerate(query_ids):
-        if query_id not in global_problems:
-            continue
-
-        problem = global_problems[query_id]
-        test_code = generateds[idx]
+    for query_id, generated, problem in zip(query_ids, generateds, problems):
         logger.debug(f"run_batch_code, query_id: {query_id}")
-
         try:
             curr_res, metadata = check_correctness(
-                problem=problem, generation=test_code, timeout=6000, debug=debug
+                problem=problem, generation=generated, timeout=6000, debug=debug
             )
 
             if any(x != True for x in curr_res):
-                logger.debug(
-                    f'id:{problem["problem_id"]}, Results were not all True: {metadata}'
-                )
-                result.append(f"{query_id} failed")
+                logger.debug(f"id:{query_id}, Results were not all True: {metadata}")
+                result.append(0)
             else:
                 # print(f"id:{problem["problem_id"]}, result : {curr_res}")
-                result.append(f"{query_id} success")
+                result.append(1)
 
         except Exception as e:
-            logger.error(f"test framework exception = {repr(e)}{e}\n", exe_info=True)
-            result.append(f"{query_id} failed")
-            break
-        finally:
-            # print(f"id:{problem["problem_id"]}, result : {curr_res}")
-            # assert isinstance(curr_res, list)
-            pass
+            exc_info = sys.exc_info()
+            logger.error(
+                f"test framework exception = {repr(e)}{e}\n{traceback.format_exception(*exc_info)}"
+            )
+            result.append(0)
 
     return result
 
 
 if __name__ == "__main__":
+    path = "/storage/openpsi/data/code/apps/test.jsonl"
+    data = []
+    with open(path, "r") as f:
+        code_data = [json.loads(l) for l in f.readlines()]
 
-    def create_test_params(index_list):
-        global global_problems
-        codes, query_ids = [], []
+    id2info = {}
+    solutions = []
+    query_ids = []
+    for i in range(10):
+        problem = code_data[i]
+        problem["problem_id"] = problem["id"]
+        id2info[problem["problem_id"]] = problem
+        solutions.append(json.loads(problem["solutions"])[0])
+        query_ids.append(problem["id"])
 
-        for index in index_list:
-            if str(index) not in global_problems:
-                continue
-
-            problem = global_problems[str(index)]
-            if "solutions" not in problem or not problem["solutions"]:
-                continue
-
-            codes.append(try_load_json(problem["solutions"])[0])
-            query_ids.append(str(index))
-        return codes, query_ids
-
-    codes, query_ids = create_test_params(list(range(805, 806)))
-    result = code_verify(codes, query_ids, True)
+    result = code_verify(
+        id2info,
+        solutions,
+        query_ids,
+        debug=False,
+    )
     print(result)

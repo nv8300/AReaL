@@ -114,9 +114,8 @@ We provide a dataset for training. Download the dataset and place it in `/storag
 ```bash
 mkdir -p /storage/datasets/
 cd /storage/datasets/
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/prompts_for_r1_distilled.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/prompts_for_zero.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/id2info.json?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_prompts_for_r1_distilled.jsonl?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_orz_zero.jsonl?download=true
 ```
 
 ## Model
@@ -291,7 +290,6 @@ The descriptions of the important parameters are as follows:
 + `MODE`: It is always `ray`, and do not change it to other values when referring to this tutorial for training.
 + `BASE_MODEL_PATH`: The path of the model.
 + `DATA_PATH`: The path of the dataset jsonl file
-+ `REAL_MATH_METADATA_PATH`: Set it to the path of the json file of the math metadata, refer to troubleshooting.
 + `CLUSTER_SPEC_PATH`: Set it to the path of cluster_config.json
 
 + `n_nodes`: The number of nodes
@@ -513,10 +511,5 @@ This error typically occurs during the vLLM generation phase and is another symp
 - Reduce the training batch size or the number of answers generated per prompt. Note that this may lower sample efficiency and extend training time.
 - [Switch vLLM's attention backend to xformers](https://github.com/vllm-project/vllm/issues/5376).
 
-## Others
-
-### How to train with other datasets
-
-The dataset must be in `jsonl` format, with each entry containing two keys: `prompt` (a math problem) and `query_id` (a unique identifier for the problem). After preparing the dataset, update the `REAL_MATH_METADATA_PATH` with the new dataset's metadata. Metadata is a JSON file that records the solutions for each problem. The training code uses this metadata to determine if the model solved a problem correctly.
 
 

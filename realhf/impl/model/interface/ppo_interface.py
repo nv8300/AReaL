@@ -18,7 +18,7 @@ import realhf.base.logging as logging
 import realhf.impl.model.utils.ppo_functional as ppo_functional
 from realhf.api.core.data_api import MicroBatchSpec, SequenceSample
 from realhf.base.datapack import flat2d
-from realhf.impl.model.interface.math_parser import parse_lines_in_parallel
+from realhf.impl.dataset.math_parser import parse_lines_in_parallel
 from realhf.impl.model.nn.real_llm_api import ReaLModel
 from realhf.impl.model.nn.real_llm_generate import concat_prompt_to_generation_output
 from realhf.impl.model.utils.functional import (

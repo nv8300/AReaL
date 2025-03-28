@@ -1,44 +1,71 @@
 # Copyright 2025 Ant Group Inc.
 
-import collections
-import copy
+import ast
+import asyncio
 import dataclasses
 import html
-import itertools
 import json
 import os
-import random
 import re
+import time
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple
 
 import colorama
 import numpy as np
-import requests
 import torch
 import torch.distributed as dist
-import tqdm
-import transformers
 
 import realhf.api.core.model_api as model_api
 import realhf.base.logging as logging
+from functioncall.code.local_verify import code_verify as local_code_verify
+from functioncall.code.verify import code_verify
 from functioncall.math.verify import math_verify
-from realhf.api.core.data_api import SequenceSample, load_hf_tokenizer
+from realhf.api.core.data_api import (
+    RL_TASKS,
+    MicroBatchSpec,
+    SequenceSample,
+    load_hf_tokenizer,
+)
 from realhf.base import constants
-from realhf.base.constants import data_parallel_group, data_parallel_world_size
 from realhf.base.datapack import flat2d
-from realhf.impl.model.interface.math_parser import parse_lines_in_parallel
-from realhf.impl.model.nn.real_llm_api import ReaLModel
+from realhf.impl.dataset.math_code_dataset import load_metadata
+from realhf.impl.dataset.math_parser import parse_lines_in_parallel as math_verify_local
 
 logger = logging.getLogger("Packed Reward Modeling Interface", "benchmark")
 
 ENABLE_FUNCTION_CALL = True if os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", "") else False
-math_verify_call = math_verify if ENABLE_FUNCTION_CALL else parse_lines_in_parallel
+math_verify_call = math_verify if ENABLE_FUNCTION_CALL else math_verify_local
+code_verify_call = code_verify if ENABLE_FUNCTION_CALL else local_code_verify
 
 
-class MathVerifierException(Exception):
+class VerifierException(Exception):
     pass
+
+
+def extract_python_code(text, min_length=20, strict_syntax=True):
+    code_pattern = r"(?i)```(?:python|py)?\s*\n?(.*?)\n?```"
+    code_blocks = re.findall(code_pattern, text, re.DOTALL)
+    valid_blocks = []
+    for block in code_blocks:
+        clean_block = block.strip()
+        if len(clean_block) < min_length:
+            continue
+
+        # verify code syntax
+        if strict_syntax:
+            try:
+                ast.parse(clean_block, mode="exec")
+            except (SyntaxError, IndentationError):
+                continue
+
+        valid_blocks.append(clean_block)
+
+    if not valid_blocks:
+        logger.warning(f"failed to extract python code from {text}")
+        return None
+    # return the last code block
+    return valid_blocks[-1]
 
 
 def check_with_elementtree(text):
@@ -94,27 +121,37 @@ def check_with_elementtree(text):
         return False, f"Error: XML格式错误, {str(e)}"
 
 
-def retokenize(
+id2info = {}
+
+
+def dispatch_reward_calculation(task, answers, query_id_strs) -> List:
+    global id2info
+    assert len(answers) == len(query_id_strs)
+    format_rewards = []
+    if task == "math":
+        format_rewards = math_verify_call(id2info, answers, query_id_strs)
+    elif task == "code":
+        codes = [extract_python_code(_answer) for _answer in answers]
+        format_rewards = code_verify_call(id2info, codes, query_id_strs)
+    assert len(format_rewards) == len(answers), (
+        task,
+        len(format_rewards),
+        len(answers),
+        answers,
+    )
+    return format_rewards
+
+
+def retokenize_and_verify(
     task,
     tokenizer,
-    packed_input_ids,
-    input_cu_seqlens,
-    prompts,
-    prompt_cu_seqlens,
-    query_ids,
+    prompt_ids: List[List[int]],
+    seq_ids: List[List[int]],
+    query_ids: List[str],
     check_xml_format=False,
-    do_eval=False,
 ):
-    input_ids = [
-        packed_input_ids[start:end]
-        for start, end in zip(input_cu_seqlens[:-1], input_cu_seqlens[1:])
-    ]
-    prompt_ids = [
-        prompts[start:end]
-        for start, end in zip(prompt_cu_seqlens[:-1], prompt_cu_seqlens[1:])
-    ]
     seq_strs = tokenizer.batch_decode(
-        input_ids, clean_up_tokenization_spaces=False, skip_special_tokens=True
+        seq_ids, clean_up_tokenization_spaces=False, skip_special_tokens=True
     )
     prompt_strs = tokenizer.batch_decode(
         prompt_ids, clean_up_tokenization_spaces=False, skip_special_tokens=True
@@ -122,261 +159,185 @@ def retokenize(
     # query_id_strs = query_ids
     query_id_strs = [query_id.split("@")[0] for query_id in query_ids]
 
-    format_rewards = []
-    queryid_to_results = collections.defaultdict(list)
-    # 8 processes on each node, with 10 subprocesses each
-    if do_eval == True:
-        _answers = [
-            seq_str.split(prompt_str)[1]
-            for seq_str, prompt_str in zip(seq_strs, prompt_strs)
-        ]
+    answers = [
+        seq_str.split(prompt_str)[1]
+        for seq_str, prompt_str in zip(seq_strs, prompt_strs)
+    ]
 
-        format_rewards = math_verify_call(_answers, query_id_strs)
-        if check_xml_format:
-            with ThreadPoolExecutor(max_workers=22) as executor:
-                futures = [
-                    executor.submit(check_with_elementtree, answer_str)
-                    for answer_str in _answers
-                ]
-                # xml_rewards = []
-                for idx, future in enumerate(futures):
-                    xml_reward, _ = future.result()
-                    # xml_rewards.append(xml_reward)
-                    if xml_reward == 1 and format_rewards[idx] == 0:
-                        format_rewards[idx] = -0.8
-                    elif xml_reward == 0 and format_rewards[idx] == 0:
-                        format_rewards[idx] = -1
+    format_rewards = dispatch_reward_calculation(task, answers, query_id_strs)
 
-        for query_id_str, format_reward in zip(query_id_strs, format_rewards):
-            if query_id_str not in queryid_to_results:
-                queryid_to_results[query_id_str] = []
-            queryid_to_results[query_id_str].append(format_reward)
-    else:
-        for query_id_str in query_id_strs:
-            if query_id_str not in queryid_to_results:
-                queryid_to_results[query_id_str] = []
-            queryid_to_results[query_id_str].append(0)
-            format_rewards.append(0)
+    if check_xml_format:
+        for idx, answer in enumerate(answers):
+            xml_reward, _ = check_with_elementtree(answer)
+            if xml_reward == 1 and format_rewards[idx] == 0:
+                format_rewards[idx] = -0.8
+            elif xml_reward == 0 and format_rewards[idx] == 0:
+                format_rewards[idx] = -1
 
-    return format_rewards, prompt_strs, prompt_ids, seq_strs, queryid_to_results
+    return format_rewards, prompt_strs, seq_strs
 
 
 @dataclasses.dataclass
-class PackedMathRewardInterface(model_api.ModelInterface):
-
-    enable_save: bool = False
+class MultiTaskRewardInterface(model_api.ModelInterface):
+    dataset_path: str = ""
     tokenizer_path: str = "/storage/models/Qwen__Qwen2.5-1.5B"
     output_scaling: float = 1.0
-    rm_output_scaling: float = 1.0
-    rm_output_bias: float = 0.0
     output_bias: float = 0.0
-    loss_fun = torch.nn.CrossEntropyLoss(reduction="none")
-    max_sync_length: int = 2048
     rw_type: str = "sparse"
-    task: str = "math"  # math or countdown
     check_xml_format: bool = False
-    post_process: str = "sigmoid"
     group_size: int = 1
     check_verifier_status: bool = False
 
     def __post_init__(self):
+        global id2info
+        id2info, _ = load_metadata(self.dataset_path)
         self.tokenizer = load_hf_tokenizer(self.tokenizer_path)
-        logger.info(f"rm_output_scaling: {self.rm_output_scaling}")
-        logger.info(f"rm_output_bias: {self.rm_output_bias}")
-        logger.info(f"output_scaling: {self.output_scaling}")
-        logger.info(f"output_bias: {self.output_bias}")
-        logger.info(f"max_sync_length: {self.max_sync_length}")
-        logger.info(f"rw_type: {self.rw_type}")
-        logger.info(f"post_process: {self.post_process}")
+        if constants.parallelism_rank() == 0:
+            logger.info(f"output_scaling: {self.output_scaling}")
+            logger.info(f"output_bias: {self.output_bias}")
+            logger.info(f"rw_type: {self.rw_type}")
 
-    def inference(
-        self,
-        model: model_api.Model,
-        data_: SequenceSample,
-        mb_spec,
-    ) -> SequenceSample:
-
-        packed_input_ids: torch.Tensor = data_.data["packed_input_ids"].squeeze()
-
-        input_seqlens = torch.tensor(data_.seqlens["packed_input_ids"]).view(-1)
-        input_cu_seqlens = torch.nn.functional.pad(
-            input_seqlens.cumsum(0), (1, 0)
-        ).int()
-
-        packed_prompts = data_.data["packed_prompts"]
-        prompts = []
-        prompt_seqlens = []
-        offset = 0
-        for x in data_.seqlens["packed_prompts"]:
-            prompts += [packed_prompts[offset : offset + x[0]]] * self.group_size
-            offset += x[0]
-            prompt_seqlens.extend(x * self.group_size)
-
-        assert offset == sum(x[0] for x in data_.seqlens["packed_prompts"])
-        # non_packed_prompts = copy.deepcopy(prompts)
-        prompts = torch.cat(prompts)
-        prompt_seqlens = torch.tensor(prompt_seqlens).view(-1)
-        prompt_cu_seqlens = torch.nn.functional.pad(
-            prompt_seqlens.cumsum(0), (1, 0)
-        ).int()
-
-        query_ids = [data_id for data_id in data_.ids for _ in range(self.group_size)]
-
-        format_rewards, prompt_strs, prompt_ids, seq_strs, queryid_to_results = (
-            retokenize(
-                self.task,
-                self.tokenizer,
-                packed_input_ids,
-                input_cu_seqlens,
-                prompts,
-                prompt_cu_seqlens,
-                query_ids,
-                check_xml_format=self.check_xml_format,
-                do_eval=constants.is_last_pipe_stage(),
+    def _dispatch_tasks(self, data: SequenceSample) -> Tuple[Dict, Dict]:
+        xs = data.unpack()
+        dispatched = {}
+        dispatched_indices = {}
+        for task_idx, task_name in enumerate(RL_TASKS):
+            indices = (
+                (data.data["task_ids"] == task_idx).cpu().numpy().nonzero()[0].tolist()
             )
+            if len(indices) > 0:
+                dispatched[task_name] = SequenceSample.gather([xs[i] for i in indices])
+                dispatched_indices[task_name] = indices
+
+        return dispatched, dispatched_indices
+
+    def _gather_tasks(
+        self, results: Dict, dispatched_indices: Dict, bs: int
+    ) -> SequenceSample:
+        xs = [None for _ in range(bs)]
+        for task_name, indices in dispatched_indices.items():
+            xxs = results[task_name].unpack()
+            assert len(indices) == len(xxs), (len(indices), len(xxs))
+            for i, xx in zip(indices, xxs):
+                xs[i] = xx
+        assert all(xs)
+        return SequenceSample.gather(xs)
+
+    def _dispatch_tp_and_pp(self, data: SequenceSample):
+        tp_pp_size = constants.tp_and_pp_world_size()
+        if tp_pp_size == 1:
+            return data, None
+        splitted, _, backward_indices = data.split(
+            mb_spec=MicroBatchSpec(n_mbs=tp_pp_size)
+        )
+        tp_pp_rank = constants.tp_and_pp_rank()
+        print("dispatched batch size", [s.bs for s in splitted], flush=True)
+        return splitted[tp_pp_rank], backward_indices
+
+    def _gather_tp_and_pp(self, input_, data: SequenceSample, backward_indices):
+        tp_pp_size = constants.tp_and_pp_world_size()
+        if tp_pp_size == 1:
+            return data
+        local_rank = constants.grid().topo.get_rank(
+            data=constants.data_parallel_rank(),
+            model=0,
+            pipe=constants.pipe_parallel_world_size() - 1,
+        )
+        dst = constants.to_global_pg_rank(local_rank)
+        gather_list = None
+        if dist.get_rank() == dst:
+            gather_list = [None for _ in range(tp_pp_size)]
+        x = data.data["rewards"].cpu().numpy().tolist()
+        print(x, flush=True)
+        dist.gather_object(
+            x, gather_list, dst=dst, group=constants.tp_and_pp_cpu_group()
+        )
+        if dist.get_rank() != dst:
+            return None
+        gathered = np.array(gather_list).reshape(-1, self.group_size)
+        assert len(gathered) == len(backward_indices)
+        rewards = (
+            np.concatenate([gathered[i] for i in backward_indices]).flatten().tolist()
+        )
+        return SequenceSample(
+            keys=["rewards"],
+            trailing_shapes=dict(rewards=()),
+            dtypes=dict(rewards=torch.float32),
+            ids=input_.ids,
+            seqlens=dict(
+                rewards=[[1 for _ in range(self.group_size)] for _ in range(input_.bs)],
+            ),
+            data=dict(rewards=torch.tensor(rewards, dtype=torch.float32)),
         )
 
-        assert self.rw_type == "sparse"
-        dense_scores = torch.zeros_like(packed_input_ids).float()
+    def calculate_task_reward(
+        self,
+        model: model_api.Model,
+        data: SequenceSample,
+        mb_spec: MicroBatchSpec,
+        task_type: str,
+    ):
+        # mb_spec is disrespected here
+        packed_input_ids: torch.Tensor = data.data["packed_input_ids"]
+        input_seqlens = flat2d(data.seqlens["packed_input_ids"])
+        seq_ids = []
+        offset = 0
+        for slen in input_seqlens:
+            seq_ids.append(
+                packed_input_ids[offset : offset + slen].cpu().numpy().tolist()
+            )
+            offset += slen
+        assert offset == packed_input_ids.shape[0], (offset, packed_input_ids.shape)
+        prompt_input_ids = data.data["packed_prompts"]
+        prompt_len = flat2d(data.seqlens["packed_prompts"])
+        prompt_ids = []
+        offset = 0
+        for slen in prompt_len:
+            p = prompt_input_ids[offset : offset + slen].cpu().numpy().tolist()
+            prompt_ids += [p] * self.group_size
+            offset += slen
+        format_rewards, prompt_strs, seq_strs = retokenize_and_verify(
+            task_type,
+            self.tokenizer,
+            prompt_ids=prompt_ids,
+            seq_ids=seq_ids,
+            query_ids=[
+                str(data_id) for data_id in data.ids for _ in range(self.group_size)
+            ],
+            check_xml_format=self.check_xml_format,
+        )
         scores = torch.FloatTensor(format_rewards).to(packed_input_ids.device)
         scores[scores == 0] = -1
 
-        if len(scores) == 0:
-            return None
-
-        assert dense_scores.shape == packed_input_ids.shape
         scores = (
             scores.to(packed_input_ids.device) - self.output_bias
         ) * self.output_scaling
 
-        logger.info(f"Math reward logging info @v{model.version.global_step}")
-        logger.info(
-            f"before: Format success rate: {torch.FloatTensor(format_rewards).mean().item()}"
-        )
-        logger.info(f"number of samples: {len(scores)}, {scores.shape}")
-        if constants.is_last_pipe_stage():
-
-            gen_file_path = os.path.join(
-                constants.LOG_ROOT,
-                constants.experiment_name(),
-                constants.trial_name(),
-                "generated",
-                f"v{model.version.global_step}r{dist.get_rank()}.txt",
-            )
-
-            os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
-            logger.info(
-                f"Generated samples and rewards will be dumped to: {gen_file_path}"
-            )
-            with open(gen_file_path, "w") as _f:
-                for idx, (score, prompt_str, seq_str) in enumerate(
-                    zip(scores, prompt_strs, seq_strs)
-                ):
-                    info = "\n".join(
-                        [
-                            f"idx: {idx} / {len(scores)}",
-                            f"reward is {score.item()}, prompt is {colorama.Fore.YELLOW + colorama.Style.DIM}{prompt_str}{colorama.Style.RESET_ALL}",
-                            f"sequence is: {colorama.Fore.YELLOW + colorama.Style.DIM}{seq_str.split(prompt_str)[1]}{colorama.Style.RESET_ALL}.",
-                        ]
-                    )
-                    _f.write(info + "\n")
-
-            gen_file_path = os.path.join(
-                constants.LOG_ROOT,
-                constants.experiment_name(),
-                constants.trial_name(),
-                "generated_jsonl",
-                f"v{model.version.global_step}r{dist.get_rank()}.jsonl",
-            )
-            os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
-            logger.info(
-                f"Generated samples and rewards will be dumped to: {gen_file_path}"
-            )
-            with open(gen_file_path, "w") as _f:
-                for idx, (score, prompt_str, seq_str) in enumerate(
-                    zip(scores, prompt_strs, seq_strs)
-                ):
-                    _f.write(
-                        json.dumps(
-                            {
-                                "prompt": prompt_str,
-                                "generated": seq_str.split(prompt_str)[1],
-                                "reward": score.item(),
-                            },
-                            ensure_ascii=False,
-                        )
-                        + "\n"
-                    )
-
-            logger.info(
-                f"Format success rate: {torch.FloatTensor(format_rewards).mean().item()}"
-            )
-
-            pass_at_k = np.mean(
-                [sum([xx == 1 for xx in x]) > 0 for x in queryid_to_results.values()]
-            )
-            avg_num_samples = np.mean([len(x) for x in queryid_to_results.values()])
-            logger.info(f"pass@k: {pass_at_k}, num_samples: {avg_num_samples}")
-
-            logger.info(f"number of samples: {len(scores)}, {scores.shape}")
-
-            logger.info(f"reward: {sum(scores) / len(scores)}")
-
-            train_pass_monitor_file_path = os.path.join(
-                constants.LOG_ROOT,
-                constants.experiment_name(),
-                constants.trial_name(),
-                "training_monitor",
-                f"v{model.version.global_step}r{dist.get_rank()}.jsonl",
-            )
-            os.makedirs(os.path.dirname(train_pass_monitor_file_path), exist_ok=True)
-            logger.info(
-                f"pass monitor result will be dumped to: {train_pass_monitor_file_path}"
-            )
-            with open(train_pass_monitor_file_path, "w") as monitor_file:
-                for key, value in queryid_to_results.items():
-                    pass1 = sum(value) / len(value)
-                    pass8 = int(sum(value) > 0)
-                    monitor_file.write(
-                        json.dumps(
-                            {"query_id": key, "pass1": pass1, "pass8": pass8},
-                            ensure_ascii=False,
-                        )
-                        + "\n"
-                    )
-
-        model.inc_version()
-
-        if scores.dtype != torch.float32:
-            scores = scores.to(torch.float32)
-        if dense_scores.dtype != torch.float32:
-            dense_scores = dense_scores.to(torch.float32)
+        self.log_rewards_to_file(task_type, model, prompt_strs, seq_strs, scores)
 
         res = SequenceSample(
-            keys=["rewards", "dense_rewards"],
-            trailing_shapes=dict(rewards=(), dense_rewards=()),
-            dtypes=dict(rewards=torch.float32, dense_rewards=torch.float32),
-            ids=data_.ids,
+            keys=["rewards"],
+            trailing_shapes=dict(rewards=()),
+            dtypes=dict(rewards=torch.float32),
+            ids=data.ids,
             seqlens=dict(
                 rewards=[
-                    torch.tensor([1 for _ in range(len(x))], dtype=torch.int32)
-                    for x in data_.seqlens["packed_input_ids"]
+                    [1 for _ in range(len(x))] for x in data.seqlens["packed_input_ids"]
                 ],
-                dense_rewards=data_.seqlens["packed_input_ids"],
             ),
-            data=dict(rewards=scores, dense_rewards=dense_scores),
+            data=dict(rewards=scores),
         )
 
         # record rewards for each piece of data
         avg_scores = []
         offset = 0
-        for i in range(data_.bs):
+        for i in range(data.bs):
             score_lis = scores[
-                offset : offset + len(data_.seqlens["packed_input_ids"][i])
+                offset : offset + len(data.seqlens["packed_input_ids"][i])
             ]
             avg_scores.append(score_lis.mean().item())
-            offset += len(data_.seqlens["packed_input_ids"][i])
-        assert offset == sum(len(x) for x in data_.seqlens["packed_input_ids"])
+            offset += len(data.seqlens["packed_input_ids"][i])
+        assert offset == sum(len(x) for x in data.seqlens["packed_input_ids"])
 
         res.metadata["scores"] = avg_scores
 
@@ -385,20 +346,165 @@ class PackedMathRewardInterface(model_api.ModelInterface):
                 np.mean(avg_scores), device=constants.current_device()
             )
             dist.all_reduce(
-                avg_score, op=dist.ReduceOp.SUM, group=constants.parallelism_group()
+                avg_score, op=dist.ReduceOp.SUM, group=constants.data_parallel_group()
             )
-            avg_score /= constants.parallelism_group_size()
+            avg_score /= constants.data_parallel_group()
             avg_score = avg_score.item()
-            minimal_score = (-1 - self.output_bias) * self.rm_output_scaling
+            minimal_score = (-1 - self.output_bias) * self.output_scaling
 
             if avg_score <= minimal_score or np.isclose(avg_score, minimal_score):
-                raise MathVerifierException(
+                raise VerifierException(
                     "All rewards are at minimal value. Probably there are something wrong with the verifier!"
                 )
-
-        if not constants.is_last_pipe_stage():
-            return None
         return res
 
+    def log_rewards_to_file(
+        self, task_type: str, model: model_api.Model, prompt_strs, seq_strs, scores
+    ):
+        tik = time.perf_counter()
+        gen_file_path = os.path.join(
+            constants.LOG_ROOT,
+            constants.experiment_name(),
+            constants.trial_name(),
+            "generated",
+            task_type,
+            f"v{model.version.global_step}r{dist.get_rank()}.txt",
+        )
 
-model_api.register_interface("rw_math", PackedMathRewardInterface)
+        os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
+        with open(gen_file_path, "w") as _f:
+            for idx, (score, prompt_str, seq_str) in enumerate(
+                zip(scores, prompt_strs, seq_strs)
+            ):
+                info = "\n".join(
+                    [
+                        f"idx: {idx} / {len(scores)}",
+                        f"reward is {score.item()}, prompt is {colorama.Fore.YELLOW + colorama.Style.DIM}{prompt_str}{colorama.Style.RESET_ALL}",
+                        f"sequence is: {colorama.Fore.YELLOW + colorama.Style.DIM}{seq_str.split(prompt_str)[1]}{colorama.Style.RESET_ALL}.",
+                    ]
+                )
+                _f.write(info + "\n")
+
+        gen_file_path = os.path.join(
+            constants.LOG_ROOT,
+            constants.experiment_name(),
+            constants.trial_name(),
+            "generated_jsonl",
+            task_type,
+            f"v{model.version.global_step}r{dist.get_rank()}.jsonl",
+        )
+        os.makedirs(os.path.dirname(gen_file_path), exist_ok=True)
+        with open(gen_file_path, "w") as _f:
+            for idx, (score, prompt_str, seq_str) in enumerate(
+                zip(scores, prompt_strs, seq_strs)
+            ):
+                _f.write(
+                    json.dumps(
+                        {
+                            "prompt": prompt_str,
+                            "generated": seq_str.split(prompt_str)[1],
+                            "reward": score.item(),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+        logger.info(f"[{task_type}] number of samples: {len(scores)}, {scores.shape}")
+        logger.info(f"[{task_type}] avg reward: {sum(scores) / len(scores)}")
+        logger.info(f"[{task_type}] log to file time: {time.perf_counter()- tik:.2f}s")
+
+    def inference(
+        self,
+        model: model_api.Model,
+        data: SequenceSample,
+        mb_spec: MicroBatchSpec,
+    ) -> SequenceSample | None:
+        input_ = data
+        data, backward_indices = self._dispatch_tp_and_pp(data)
+        task_data, dispatch_indices = self._dispatch_tasks(data)
+
+        assert self.rw_type == "sparse"
+
+        def _task_func(func, task_type: str):
+            def _wrapped_func(*args, **kwargs):
+                start_time = time.perf_counter()
+                try:
+                    result = func(*args, **kwargs)
+                except Exception as e:
+                    raise asyncio.CancelledError(
+                        f"[{task_type}] task failed: {e}"
+                    ) from e
+                finally:
+                    duration = time.perf_counter() - start_time
+                    logger.info(f"[{task_type}] time cost: {duration:.4f}s")
+                return task_type, result
+
+            return _wrapped_func
+
+        async def _run_tasks():
+            tasks = []
+            for task_type, d in task_data.items():
+                task_func = _task_func(self.calculate_task_reward, task_type)
+                task_args = (model, d, mb_spec, task_type)
+                task = asyncio.create_task(asyncio.to_thread(task_func, *task_args))
+                tasks.append(task)
+
+            results = await asyncio.gather(*tasks)
+            task_results = {}
+            for res in results:
+                task_type, result = res
+                task_results[task_type] = result
+
+            return task_results
+
+        task_results = asyncio.run(_run_tasks())
+        final_result = self._gather_tasks(task_results, dispatch_indices, data.bs)
+        final_result = self._gather_tp_and_pp(input_, final_result, backward_indices)
+
+        model.inc_version()
+
+        return final_result
+
+    def _mock_inference(
+        self,
+        model: model_api.Model,
+        data: SequenceSample,
+    ) -> SequenceSample:
+
+        prompt_lens = flat2d(data.seqlens["packed_prompts"])
+        task_ids = data.data["task_ids"].cpu().numpy().tolist()
+        seqlens = []
+        offset = 0
+        seq = []
+        for plen, task_id in zip(prompt_lens, task_ids):
+            seq += [data.data["packed_prompts"][offset : offset + plen]]
+            offset += plen
+            if task_id == RL_TASKS.index("math"):
+                answer_str = (
+                    "something unimportant but the answer is \\boxed{-\\frac{2}{3}}."
+                )
+            elif task_id == RL_TASKS.index("code"):
+                answer_str = (
+                    "```python\ninput()\nimport time\ntime.sleep(1e-3)\nprint(1)\n```"
+                )
+            else:
+                answer_str = "something unimportant"
+            encoding = model.tokenizer(
+                [answer_str], add_special_tokens=True, return_attention_mask=False
+            )
+
+            ans = torch.tensor(encoding["input_ids"], dtype=torch.long).flatten()
+            seq += [ans]
+            seqlens.append(plen + len(ans))
+
+        x = SequenceSample.from_default(
+            seqlens=seqlens,
+            ids=data.ids,
+            data=dict(packed_input_ids=torch.cat(seq)),
+        )
+        data.update_(x)
+        return data
+
+
+model_api.register_interface("rw-math-code", MultiTaskRewardInterface)

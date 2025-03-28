@@ -54,22 +54,21 @@ Please refer to the [tutorial](/examples/README.md) under the `examples` directo
 # Download the dataset
 DATA_PATH=/storage/datasets/
 cd $DATA_PATH
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/prompts_for_r1_distilled.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/id2info.json?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_prompts_for_r1_distilled.jsonl?download=true
 
 # Training in a Ray cluster with 16 nodes
 
 # stage 1
 MODEL_PATH=${path_to_DeepSeek-R1-Distill-Qwen-1.5B}
-bash ./examples/train_1.5B_n16_on_ray.sh $MODEL_PATH $DATA_PATH/prompts_for_r1_distilled.jsonl $DATA_PATH/id2info.json 8192 
+bash ./examples/train_1.5B_n16_on_ray.sh $MODEL_PATH $DATA_PATH/full_prompts_for_r1_distilled.jsonl 8192 
 
 # stage 2
 MODEL_PATH=${model_path_from_stage_1}
-bash ./examples/train_1.5B_n16_on_ray.sh $MODEL_PATH $DATA_PATH/prompts_for_r1_distilled.jsonl $DATA_PATH/id2info.json 16384
+bash ./examples/train_1.5B_n16_on_ray.sh $MODEL_PATH $DATA_PATH/full_prompts_for_r1_distilled.jsonl 16384
 
 # stage 3
 MODEL_PATH=${model_path_from_stage_2}
-bash ./examples/train_1.5B_n16_on_ray.sh $MODEL_PATH $DATA_PATH/prompts_for_r1_distilled.jsonl $DATA_PATH/id2info.json 24000
+bash ./examples/train_1.5B_n16_on_ray.sh $MODEL_PATH $DATA_PATH/full_prompts_for_r1_distilled.jsonl 24000
 
 ```
 
@@ -134,11 +133,10 @@ Table 2. Evaluation on AIME 2024, AMC 2023, and MATH-500. The results are report
 # Training in a Ray cluster with 16 nodes
 DATA_PATH=/storage/datasets/
 cd $DATA_PATH
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/prompts_for_zero.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/id2info.json?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_orz_zero.jsonl?download=true
 
 MODEL_PATH=${path_to_Qwen2.5-7B}
-bash ./examples/train_7B_zero_n16_on_ray.sh $MODEL_PATH $DATA_PATH/prompts_for_zero.jsonl $DATA_PATH/id2info.json 24000
+bash ./examples/train_7B_zero_n16_on_ray.sh $MODEL_PATH $DATA_PATH/full_orz_zero.jsonl 24000
 
 ```
 

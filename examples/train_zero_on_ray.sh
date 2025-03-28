@@ -20,7 +20,6 @@ BASE_MODEL_PATH="/storage/models/${MODEL_NAME}"
 
 # original data
 DATA_PATH="/storage/datasets/${DATASET_NAME}"
-REAL_MATH_METADATA_PATH="/storage/datasets/id2info.json"
 
 # Option 1: The experiment runs locally with subprocesses.
 # MODE=local
@@ -55,7 +54,6 @@ TRIAL_NAME="${TRAIN_BATCH_SIZE}x${GROUP_SIZE}-n${NODES}"
 # It's the user's responsibility to tune them appropriately.
 unset CLUSTER_SPEC_PATH
 CLUSTER_SPEC_PATH=/storage/ray/cluster_config_on_ray.json \
-REAL_MATH_METADATA_PATH=${REAL_MATH_METADATA_PATH} \
 REAL_GPU_MEMORY_KILL_THRESHOLD=1 \
 python3 -m realhf.apps.quickstart ppo-math \
     mode=$MODE \
@@ -67,8 +65,6 @@ python3 -m realhf.apps.quickstart ppo-math \
     exp_ctrl.ckpt_freq_secs=600 \
     group_size=${GROUP_SIZE} \
     group_adv_norm=False \
-    use_dense_reward=False \
-    reward_delta=True \
     rw_type=sparse \
     check_xml_format=True \
     actor.type._class=$MODEL_FAMILY \
@@ -85,10 +81,6 @@ python3 -m realhf.apps.quickstart ppo-math \
     critic.path=$BASE_MODEL_PATH\
     ref.type._class=$MODEL_FAMILY \
     ref.path=$BASE_MODEL_PATH \
-    rew.type._class=$MODEL_FAMILY \
-    rew.type.is_critic=True \
-    rew.init_critic_from_actor=True \
-    rew.path=$BASE_MODEL_PATH \
     dataset.path=$DATA_PATH \
     dataset.max_prompt_len=2048 \
     dataset.train_bs_n_seqs=${TRAIN_BATCH_SIZE} \
@@ -103,6 +95,7 @@ python3 -m realhf.apps.quickstart ppo-math \
     ppo.reward_output_scaling=0.5 \
     ppo.reward_output_bias=-1.0 \
     ppo.adv_norm=True ppo.value_norm=True \
+    ppo.fuse_rew_ref=False \
     mask_too_long=False \
     ppo.discount=1.0 \
     actor.optimizer.lr=1e-6 \
@@ -110,7 +103,7 @@ python3 -m realhf.apps.quickstart ppo-math \
     actor.optimizer.lr_scheduler_type=constant \
     actor_gen.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
     ref_inf.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
-    rew_inf.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
+    actor_inf.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
     critic_inf.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
     actor_train.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \
     critic_train.mb_spec.max_tokens_per_mb=${MAX_TOKEN_PER_MB} \

@@ -43,6 +43,8 @@ from realhf.base.cluster import spec as cluster_spec
 
 logger = logging.getLogger("api.data")
 
+RL_TASKS = ["math", "code", "rlhf"]
+
 
 def load_hf_tokenizer(
     model_name_or_path: str,
@@ -529,6 +531,7 @@ class SequenceSample:
             "rewards",
             "greedy_rewards",
             "base_scores",
+            "task_ids",
         ]:
             return [[1] for _ in seqlens]
         elif key in [
@@ -720,9 +723,6 @@ def load_shuffle_split_dataset(
         if dataset_path.endswith(".jsonl"):
             with open(dataset_path, "r") as f:
                 data = [json.loads(ff) for ff in f]
-        elif dataset_path.endswith(".json"):
-            with open(dataset_path, "r") as f:
-                data = json.load(f)
         else:
             raise NotImplementedError(f"Unknown dataset extension: {dataset_path}")
     else:

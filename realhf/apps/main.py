@@ -160,8 +160,6 @@ def main_start(args, recover_count: int = 0):
         CLUSTER_SPEC_PATH=cluster_spec_path,
         REAL_RECOVER_RUN="1" if is_recover_run else "0",
         REAL_SAVE_RECOVER_STATES="1" if save_recover_states else "0",
-        REAL_MATH_METADATA_PATH=os.getenv("REAL_MATH_METADATA_PATH", ""),
-        REAL_CODE_METADATA_PATH=os.getenv("REAL_CODE_METADATA_PATH", ""),
         FUNCTIONCALL_SERVICE_DOMAIN=os.getenv("FUNCTIONCALL_SERVICE_DOMAIN", ""),
         REAL_ETCD_ADDR=os.getenv("REAL_ETCD_ADDR", "localhost:2379"),
     )
