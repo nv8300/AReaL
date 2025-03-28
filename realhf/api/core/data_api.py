@@ -37,6 +37,7 @@ from pydantic import Field
 from pydantic import dataclasses as pdclasses
 from pydantic import field_validator, model_validator
 
+from realhf.api.cli_args import MicroBatchSpec
 from realhf.api.core import config as config_api
 from realhf.base import constants, datapack, logging
 from realhf.base.cluster import spec as cluster_spec
@@ -98,33 +99,6 @@ class SequenceSplitSpec:
             ]
 
         return self
-
-
-@dataclasses.dataclass
-class MicroBatchSpec:
-    """The specification for splitting micro-batches.
-
-    :param n_mbs: The number of micro-batches, if max_tokens_per_mb is
-        None. The *minimum* number of micro-batches, if
-        max_tokens_per_mb is an integer. Defaults to 1.
-    :type n_mbs: int
-    :param max_tokens_per_mb: The maximum number of tokens per micro-
-        batch.
-    :type max_tokens_per_mb: Optional[int]
-    """
-
-    n_mbs: int = 1
-    max_tokens_per_mb: int = int(1e12)
-
-    @classmethod
-    def new(cls, mb_spec: "MicroBatchSpec", **kwargs):
-        # NOTE: Use classmethod to make the Omegaconf duck object happy.
-        fields = dict(
-            n_mbs=mb_spec.n_mbs,
-            max_tokens_per_mb=mb_spec.max_tokens_per_mb,
-        )
-        fields.update(kwargs)
-        return cls(**fields)
 
 
 @pdclasses.dataclass(config=dict(arbitrary_types_allowed=True))

@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 import torch
+from torch.utils.data import DataLoader
 
 from realhf.api.core import config as config_api
 from realhf.api.core import data_api
@@ -20,16 +21,22 @@ def _validate_dataset(cfg: config_api.DatasetAbstraction, tokenizer):
         dp_rank=0,
         world_size=1,
         tokenizer_or_tokenizer_name=tokenizer,
-        experiment_name=uuid.uuid4(),
-        trial_name=uuid.uuid4(),
+        experiment_name=str(uuid.uuid4()),
+        trial_name=str(uuid.uuid4()),
     )
-    dataloader = data_api.PackedDataLoader(dataset)
+    dataloader = DataLoader(
+        dataset,
+        collate_fn=data_api.SequenceSample.gather,
+        # NOTE: This is *NOT* the actual batch size for training.
+        # It is just a proper size to load data to workers.
+        batch_size=10240,
+        shuffle=True,
+    )
     for x in dataloader:
         assert isinstance(x, data_api.SequenceSample)
         assert x.data is not None
         for k, v in x.data.items():
             assert v.device == torch.device("cpu")
-        bs = len(x.ids)
         for k, vs in x.seqlens.items():
             assert all(isinstance(v, list) for v in vs)
             assert all(all(isinstance(vv, int) for vv in v) for v in vs)
@@ -37,7 +44,7 @@ def _validate_dataset(cfg: config_api.DatasetAbstraction, tokenizer):
         if x.metadata:
             for k, v in x.metadata.items():
                 assert isinstance(v, list), k
-        xs = x.split(bs)
+        xs = x.unpack()
         for xx in xs:
             if xx.metadata:
                 for k, v in xx.metadata.items():

@@ -9,8 +9,8 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
-from realhf.api.core.dfg import MFCDef, MicroBatchSpec
-from realhf.api.quickstart.model import ParallelismConfig
+from realhf.api.cli_args import ParallelismConfig
+from realhf.api.core.dfg import MFCDef
 from realhf.base.cluster import spec as cluster_spec
 from realhf.base.slurm_utils import (
     are_ones_contiguous,
@@ -344,29 +344,3 @@ class RPCAllocation:
             device_mesh=DeviceMesh.from_dict(d["device_mesh"]),
             parallel=ParallelismConfig(**d["parallel"]),
         )
-
-
-@dataclasses.dataclass
-class MFCConfig:
-    """Configuration for a single MFC.
-
-    :param mb_spec: Specifying how to spliting micro-batches when
-        executing this MFC. Refer to MicroBatchSpec for details.
-    :type mb_spec: MicroBatchSpec
-    :param parallel: Configuration for the parallelism strategy. This is
-        used only for manual allocation.
-    :type parallel: ParallelismConfig
-    :param device_mesh: String representation of the device mesh. If it
-        consists of multiple nodes, it should be formatted as a SLURM
-        nodelist, e.g., node[01-02] or node01,node02. If it represents a
-        slice on a single node, it should occupy 1, 2, 4, or 8
-        contiguous GPUs on the node. In this case, the string
-        representation is similar to an MPI hostfile, e.g.,
-        "node01:0,1,2,3" for the first 4 GPUs on node01. This is used
-        only for manual allocation.
-    :type device_mesh: Optional[str]
-    """
-
-    mb_spec: MicroBatchSpec = dataclasses.field(default_factory=MicroBatchSpec)
-    parallel: ParallelismConfig = dataclasses.field(default_factory=ParallelismConfig)
-    device_mesh: Optional[str] = None

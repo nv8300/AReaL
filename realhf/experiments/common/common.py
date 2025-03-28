@@ -13,6 +13,12 @@ import transformers
 from omegaconf import MISSING, OmegaConf
 
 import realhf.base.logging as logging
+from realhf.api.cli_args import (
+    BaseExperimentConfig,
+    MFCConfig,
+    ModelTrainEvalConfig,
+    ParallelismConfig,
+)
 from realhf.api.core.config import (
     DatasetAbstraction,
     ModelAbstraction,
@@ -24,27 +30,17 @@ from realhf.api.core.config import (
 from realhf.api.core.dfg import MFCDef, ModelInterfaceType
 from realhf.api.core.model_api import HF_MODEL_FAMILY_REGISTRY
 from realhf.api.core.system_api import (
-    AutomaticEvaluator,
     Experiment,
     ExperimentConfig,
-    ExperimentSaveEvalControl,
     ExperimentScheduling,
     ModelWorker,
     Scheduling,
     TasksGroup,
-    TensorBoardConfig,
-    WandBConfig,
 )
 from realhf.api.quickstart.device_mesh import (
     DeviceMesh,
-    MFCConfig,
     RPCAllocation,
     make_device_mesh_from_name,
-)
-from realhf.api.quickstart.model import (
-    ModelTrainEvalConfig,
-    ParallelismConfig,
-    get_real_model_config,
 )
 from realhf.base.cluster import spec as cluster_spec
 from realhf.experiments.common.check import (
@@ -58,6 +54,7 @@ from realhf.experiments.common.check import (
 from realhf.experiments.common.utils import (
     AllocationMode,
     asdict,
+    get_real_model_config,
     get_topo,
     make_inf_backend_config,
     make_train_backend_config,
@@ -75,165 +72,7 @@ GEN_HYBRID_TRAIN_DECOUPLE_ALLOC_WARN = False
 
 
 @dataclasses.dataclass
-class CommonExperimentConfig(Experiment):
-    """Configuration for quickstart experiments.
-
-    All members can be modified via the command line. For example,
-
-    .. code-block:: shell
-
-        $ python3 -m realhf.apps.quickstart sft trial_name=my_trial seed=42 exp_ctrl.save_freq_steps=10 ...
-
-    This command changes the ``trial_name``, ``seed``, and the ``save_freq_steps`` attribute
-    of the ``exp_ctrl`` attribute in this class.
-
-    ``recover_mode`` can be one of the following\:
-
-    - ``auto``\: Automatically recover the last failed run. If the checkpoint does not exist, run from scratch with fault tolerance.
-
-    - ``fault``\: Run from scratch with fault tolerance.
-
-    - ``resume``\: Resume from saved recovery states and then run it once without fault tolerance.
-
-    - ``disabled``\: Do nothing but raise an error if one occurs.
-
-    If you are not familiar with ReaL's recovery mechanism, set this to ``disabled``.
-    Normal checkpointing is usually sufficient in most cases.
-
-    ``allocation_mode`` can be one of the following\:
-
-    - ``manual``\: Manually allocate resources using the specified command-line options.
-
-    - ``search``\: Allocate resources and configure parallel strategies using the search engine.
-
-    - ``heuristic``\: Allocate resources and configure parallel strategies using heuristic strategies obtained from a search.
-
-    - A regex pattern like ``d${DP}p${PP}m${TP}``\: Identical parallelization for all MFCs with ${DP}-way data parallelism, ${PP}-way pipeline parallelism, and ${TP}-way model parallelism.
-
-    - A regex pattern like ``{vllm|sglang}.{IdentPara}+{IdentPara}``\: Decoupled generation and training allocations with correspnding identical parallelization strategies.
-
-    - Key-value pairs with MFC names and their parallel strategies in the whole cluster, e.g., ``actor_gen:d4m2p1,*:d2p2m2`` specifies a ``d4m2p1`` strategy for actor geneartion and ``d2p2m2`` for other MFCs in a world of 8 GPUs.
-
-    :param experiment_name: The name of the experiment.
-        An arbitrary string without "_" and "/", e.g., ``ultra-chat-llama``.
-        This parameter is required.
-    :type experiment_name: str
-    :param trial_name: The name of the trial.
-        An arbitrary string without "-" and "/", e.g., ``lr1e-3wd0.05``.
-        This parameter is required.
-    :type trial_name: str
-    :param mode: The experiment launching mode. Supported values are "local", "ray", or "slurm".
-        "ray" mode requires launching the Ray cluster via CLI.
-        "slurm" mode requires the Pyxis plugin with the Enroot container enabled.
-        "local" mode implies ``n_nodes=1``.
-    :type mode: str
-    :param debug: Whether to run in debug mode.
-        Setting this to `False` will disable all assertions, which will be faster but less safe.
-    :type debug: bool
-    :param partition: The SLURM partition for running the experiment.
-    :type partition: str
-    :param wandb: The WandB initialization config.
-        See https://docs.wandb.ai/ref/python/init/ for details.
-    :type wandb: WandbConfig
-    :param tensorboard: The tensorboard initialization config.
-        Only the field of `path` is needed to specify the directory of saving the tensorboard events.
-    :type tensorboard: TensorBoardConfig
-    :param image_name: The name of the Docker image used by the controller.
-        This parameter is only used in SLURM mode.
-    :type image_name: str or None
-    :param recover_mode: The recovery mode. See above for details.
-    :type recover_mode: str
-    :param recover_retries: The number of retries for recovery.
-        Effective only when ``recover_mode`` is set to "auto" or "fault".
-    :type recover_retries: int
-    :param recover_after: The time interval (seconds) for recovery.
-        Effective only when ``recover_mode`` is set to "auto" or "fault".
-    :type recover_after: int
-    :param ignore_worker_error: Whether to ignore errors raised by
-        workers during runtime. Only set this to `True` if you are certain that the error can be ignored.
-        Effective only when ``recover_mode`` is set to "disabled".
-    :type ignore_worker_error: bool
-    :param allocation_mode: The mode for GPU parallel strategy allocation. See above for details.
-    :type allocation_mode: str
-    :param allocation_use_cache: Whether to use cache in allocation search.
-        Effective only when ``allocation_mode`` is set to "search" and a cache is available in the log directory of the current experiment
-        name and trial.
-    :type allocation_use_cache: bool
-    :param n_nodes: The number of nodes to run the experiment.
-    :type n_nodes: int
-    :param n_gpus_per_node: The number of GPUs per node.
-        Thus, the total number of GPUs will be ``n_nodes * n_gpus_per_node``.
-        ReaL supports a world size of 1, 2, 4, 8, ... within a single node,
-        or multiple nodes with the same number of GPUs.
-    :type n_gpus_per_node: int
-    :param nodelist: Nodelist for the distributed setting in SLURM nodelist format.
-        Required for the ``manual`` allocation mode.
-        For multiple GPUs on a single node, it should be formatted as "NODE01:0,1,2,3",
-        indicating the use of the first 4 GPUs on ``NODE01``.
-        For multiple complete nodes, it should be formatted as "NODE[01-02,03,07],COM08",
-        indicating the use of all GPUs on these nodes: [NODE01, NODE02, NODE03, NODE07, COM08].
-    :type nodelist: str or None
-    :param seed: The random seed.
-    :type seed: int
-    :param cache_clear_freq: The cache of data transfer will be cleared after each ``cache_clear_freq`` steps.
-        If None, will not clear the cache. Set to a small number, e.g., 1, if OOM or CUDA OOM occurs.
-    :type cache_clear_freq: int or None
-    :param exp_ctrl: The control for saving and evaluating the experiment.
-    :type exp_ctrl: ExperimentSaveEvalControl
-    :param torch_cache_mysophobia: Whether to clean torch-allocated cache blocks with
-        torch.cuda.empty_cache() before each RPC in model worker
-        If enabled, there will be a ~0.1s overhead per RPC.
-    :type torch_cache_mysophobia: bool
-    :param auto_eval: Whether to automatic evaluation in training. When enabled, an evaluation
-        job is submitted whenever a checkpoint is saved, and the result will be logged on disk and
-        on wandb if wandb is active.
-    :type auto_eval: bool
-    :param auto_eval_config: Configuration for automatic evaluation.
-    :type auto_eval_config: AutomaticEvaluator
-    :param cpus_per_master_worker: The number of CPUs for each master worker.
-    :param mem_per_master_worker: The size of memory for each master worker, measured in MB.
-    :param cpus_per_model_worker: The number of CPUs for each model worker.
-    :param mem_per_model_worker: The size of memory for each model worker, measured in MB.
-    """
-
-    experiment_name: str = MISSING
-    trial_name: str = MISSING
-    mode: str = dataclasses.field(
-        metadata={"choices": ["slurm", "local", "ray"]}, default="slurm"
-    )
-    debug: bool = True
-    partition: str = "dev"
-    schedule_strategy: str = "empty_first"
-    wandb: WandBConfig = dataclasses.field(default_factory=WandBConfig)
-    tensorboard: TensorBoardConfig = dataclasses.field(
-        default_factory=TensorBoardConfig
-    )
-    image_name: Optional[str] = None
-    recover_mode: str = "disabled"
-    recover_retries: int = 1
-    recover_after: int = 10
-    ignore_worker_error: bool = False
-    allocation_mode: str = ""
-    allocation_use_cache: bool = False
-    n_nodes: int = 1
-    n_gpus_per_node: int = cluster_spec.n_gpus_per_node
-    nodelist: Optional[str] = None
-    seed: int = 1
-    cache_clear_freq: Optional[int] = 10
-    exp_ctrl: ExperimentSaveEvalControl = dataclasses.field(
-        default_factory=ExperimentSaveEvalControl
-    )
-    torch_cache_mysophobia: bool = True
-    # Options for automatic evaluation
-    auto_eval: bool = False
-    auto_eval_config: AutomaticEvaluator = dataclasses.field(
-        default_factory=AutomaticEvaluator
-    )
-    # Options for worker resources
-    cpus_per_master_worker: int = 4
-    mem_per_master_worker: int = 20000
-    cpus_per_model_worker: int = 4
-    mem_per_model_worker: int = 90000
+class CommonExperimentConfig(BaseExperimentConfig, Experiment):
 
     @property
     def models(self) -> Dict[str, ModelTrainEvalConfig]:

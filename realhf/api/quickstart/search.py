@@ -5,9 +5,9 @@
 import dataclasses
 from typing import List, Optional
 
+from realhf.api.cli_args import ParallelismConfig
 from realhf.api.core.dfg import MFCDef
 from realhf.api.quickstart.device_mesh import DeviceMesh
-from realhf.api.quickstart.model import ParallelismConfig
 
 
 @dataclasses.dataclass

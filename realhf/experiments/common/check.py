@@ -2,13 +2,10 @@
 # Copyright 2024 Wei Fu & Zhiyu Mei
 # Licensed under the Apache License, Version 2.0 (the "License").
 import os
-from importlib.metadata import version
 from typing import List
 
-from packaging.version import Version
-
+from realhf.api.cli_args import ModelTrainEvalConfig, SGLangConfig, vLLMConfig
 from realhf.api.quickstart.device_mesh import RPCAllocation
-from realhf.api.quickstart.model import ModelTrainEvalConfig, SGLangConfig, vLLMConfig
 from realhf.base import logging
 
 logger = logging.getLogger(__name__)

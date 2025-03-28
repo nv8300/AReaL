@@ -4,6 +4,7 @@
 
 import dataclasses
 
+from realhf.api.cli_args import SFTExperimentOptions
 from realhf.api.core.config import (
     DatasetAbstraction,
     ModelInterfaceAbstraction,
@@ -11,35 +12,12 @@ from realhf.api.core.config import (
     ModelName,
 )
 from realhf.api.core.dfg import MFCDef
-from realhf.api.quickstart.dataset import PromptAnswerDatasetConfig
-from realhf.api.quickstart.device_mesh import MFCConfig
 from realhf.api.quickstart.entrypoint import register_quickstart_exp
-from realhf.api.quickstart.model import ModelTrainEvalConfig
 from realhf.experiments.common.common import CommonExperimentConfig
 
 
 @dataclasses.dataclass
-class SFTConfig(CommonExperimentConfig):
-    """Configuration for SFT experiments.
-
-    This class is a subclass of :class:`CommonExperimentConfig`,
-    so all CLI options from the base class are available.
-
-    :param model: Configuration for model runtime.
-    :type model: ModelTrainEvalConfig
-    :param allocation: Configuration for device allocation and parallelism.
-    :type allocation: MFCConfig
-    :param dataset: Configuration for the dataset.
-    :type dataset: PromptAnswerDatasetConfig
-    """
-
-    model: ModelTrainEvalConfig = dataclasses.field(
-        default_factory=ModelTrainEvalConfig
-    )
-    allocation: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    dataset: PromptAnswerDatasetConfig = dataclasses.field(
-        default_factory=PromptAnswerDatasetConfig
-    )
+class SFTConfig(CommonExperimentConfig, SFTExperimentOptions):
 
     @property
     def models(self):
@@ -56,7 +34,7 @@ class SFTConfig(CommonExperimentConfig):
             interface_type=ModelInterfaceType.TRAIN_STEP,
             interface_impl=ModelInterfaceAbstraction("sft"),
             model_name="default",
-            input_keys=["packed_input_ids", "prompt_mask"],
+            input_keys=("packed_input_ids", "prompt_mask"),
             log_return_value=True,
             model_type=self.model.type,
             model_path=self.model.path,

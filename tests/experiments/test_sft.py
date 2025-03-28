@@ -5,8 +5,16 @@ from typing import *
 
 import pytest
 
-from realhf.api.quickstart.dataset import PromptAnswerDatasetConfig
-from realhf.api.quickstart.model import ModelTrainEvalConfig
+from realhf.api.cli_args import (
+    ExperimentSaveEvalControl,
+    GenerationHyperparameters,
+    MFCConfig,
+    MicroBatchSpec,
+    ModelTrainEvalConfig,
+    ParallelismConfig,
+    PPOHyperparameters,
+    PromptOnlyDatasetConfig,
+)
 from realhf.base import cluster, testing
 from realhf.experiments.common.sft_exp import SFTConfig
 from tests.experiments.utils import run_test_exp

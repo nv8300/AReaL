@@ -311,7 +311,7 @@ def main_find_config(args):
 
 
 def main_profile_layers(args):
-    from realhf.api.core.model_api import ModelFamily
+    from realhf.api.cli_args import ModelFamily
 
     _main_profile_layers(
         ModelFamily(args.model_class, args.model_size, args.is_critic),
@@ -320,7 +320,7 @@ def main_profile_layers(args):
 
 
 def _main_profile_layers(model_family, model_path):
-    from realhf.api.core.model_api import ModelFamily
+    from realhf.api.cli_args import ModelFamily
     from realhf.base.slurm_utils import check_slurm_availability
     from realhf.base.testing import clear_name_resolve
 

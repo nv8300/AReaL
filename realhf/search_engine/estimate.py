@@ -18,9 +18,9 @@ import pandas as pd
 import realhf.base.cluster
 import realhf.base.constants as constants
 import realhf.base.logging as logging
+from realhf.api.cli_args import ParallelismConfig
 from realhf.api.core.dfg import MFCDef, ModelFamily, ModelInterfaceType
 from realhf.api.core.model_api import ReaLModelConfig
-from realhf.api.quickstart.model import ParallelismConfig
 from realhf.search_engine.param_realloc import estimate_param_realloc_time_cost
 from realhf.search_engine.utils import load_model_config
 

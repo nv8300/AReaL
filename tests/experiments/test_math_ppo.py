@@ -7,17 +7,18 @@ from typing import *
 
 import pytest
 
-from realhf.api.core.data_api import MicroBatchSpec
-from realhf.api.core.system_api import ExperimentSaveEvalControl
-from realhf.api.quickstart.dataset import PromptOnlyDatasetConfig
-from realhf.api.quickstart.device_mesh import MFCConfig
-from realhf.api.quickstart.model import ModelTrainEvalConfig, ParallelismConfig
-from realhf.base import cluster, testing
-from realhf.experiments.common.ppo_math_exp import (
+from realhf.api.cli_args import (
+    ExperimentSaveEvalControl,
     GenerationHyperparameters,
+    MFCConfig,
+    MicroBatchSpec,
+    ModelTrainEvalConfig,
+    ParallelismConfig,
     PPOHyperparameters,
-    PPOMATHConfig,
+    PromptOnlyDatasetConfig,
 )
+from realhf.base import cluster, testing
+from realhf.experiments.common.ppo_math_exp import PPOMATHConfig
 from tests.experiments.utils import run_test_exp
 from tests.fixtures import *
 

@@ -29,8 +29,8 @@ except ModuleNotFoundError:
         pass
 
 
+from realhf.api.cli_args import vLLMConfig
 from realhf.api.core import data_api, model_api
-from realhf.api.quickstart.model import vLLMConfig
 from realhf.base import constants, logging, seeding
 
 logger = logging.getLogger("vLLM backend")

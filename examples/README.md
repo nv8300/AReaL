@@ -281,7 +281,7 @@ python3 -m realhf.apps.quickstart ppo-math option1=arg1 option2=arg2 ...
 The command-line arguments like `option1=arg1` are parsed by [hydra](https://hydra.cc/), and each configuration item is a `dataclasses.dataclass` in the Python code. You can use the following command to view all the command-line arguments that can be passed in the experiment:
 
 ```bash
-python3 -m realhf.apps.quickstart ppo-math --show-args
+python3 -m realhf.apps.quickstart ppo-math --help
 ```
 
 The descriptions of the important parameters are as follows:

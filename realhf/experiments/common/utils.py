@@ -7,23 +7,31 @@ import dataclasses
 import enum
 import itertools
 import re
-from typing import *
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Hashable,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
+from realhf.api.cli_args import ModelTrainEvalConfig, ParallelismConfig
 from realhf.api.core.config import (
+    ModelAbstraction,
     ModelBackendAbstraction,
     ModelInterfaceType,
     ModelName,
 )
 from realhf.api.core.dfg import OffloadHook, ParamReallocHook
 from realhf.api.quickstart.device_mesh import RPCAllocation
-from realhf.api.quickstart.model import (
-    ModelTrainEvalConfig,
-    ParallelismConfig,
-    parallelism_eq,
-)
 from realhf.base import logging
 from realhf.base.topology import (
     DataPipeModelParallelTopology,
@@ -32,6 +40,29 @@ from realhf.base.topology import (
 )
 
 logger = logging.getLogger("Experiment Common Utils", "benchmark")
+
+
+def get_real_model_config(
+    model_path: str,
+    hf_model_family: str,
+    is_critic: bool,
+    init_from_scratch: bool,
+    init_critic_from_actor: bool,
+    dtype: Optional[str] = None,
+) -> ModelAbstraction:
+    """Make a configuration to build model."""
+    model = ModelAbstraction(
+        "real_model",
+        args=dict(
+            model_path=model_path,
+            is_critic=is_critic,
+            init_critic_from_actor=init_critic_from_actor,
+            dtype=dtype,
+            hf_model_family=hf_model_family,
+            init_from_scratch=init_from_scratch,
+        ),
+    )
+    return model
 
 
 def get_topo(
@@ -72,7 +103,7 @@ def make_train_backend_config(
     model_cfg: ModelTrainEvalConfig, parallel_cfg: ParallelismConfig
 ):
     if model_cfg.backend == "megatron":
-        megatron_args: Dict[str, Any] = OmegaConf.to_container(model_cfg.megatron)
+        megatron_args: Dict[str, Any] = asdict(model_cfg.megatron)
         return ModelBackendAbstraction(
             "megatron",
             args=dict(
@@ -132,8 +163,11 @@ def resolve_replica_ids(
         for alloc in allocs:
             if alloc.rpc.name == main_alloc.rpc.name:
                 continue
-            same_alloc = alloc.device_mesh == main_alloc.device_mesh and parallelism_eq(
-                alloc.parallel, main_alloc.parallel
+            same_alloc = (
+                alloc.device_mesh == main_alloc.device_mesh
+                and ParallelismConfig.parallelism_eq(
+                    alloc.parallel, main_alloc.parallel
+                )
             )
             if not same_alloc or (
                 alloc.rpc.is_generate()
@@ -165,7 +199,7 @@ def resolve_rpc_hooks(
                 if rpc.role != other.rpc.role:
                     continue
                 if (
-                    parallelism_eq(parallel, other.parallel)
+                    ParallelismConfig.parallelism_eq(parallel, other.parallel)
                     and device_mesh == other.device_mesh
                     and not (
                         model_configs[rpc.role].vllm.hybrid_train

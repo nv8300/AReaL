@@ -4,7 +4,7 @@ import json
 import random
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 
 def load_jsonl(file_path: Path) -> List[Dict]:

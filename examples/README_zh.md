@@ -288,7 +288,7 @@ python3 -m realhf.apps.quickstart ppo-math option1=arg1 option2=arg2 ...
 其中`option1=arg1`这些命令行参数是通过[hydra](https://hydra.cc/)进行解析的，其中每一条配置项都是python代码中的`dataclasses.dataclass`。用以下命令可以查看实验中所有可以传递的命令行参数：
 
 ```bash
-python3 -m realhf.apps.quickstart ppo-math --show-args
+python3 -m realhf.apps.quickstart ppo-math --help
 ```
 
 其中重要的参数的说明如下：

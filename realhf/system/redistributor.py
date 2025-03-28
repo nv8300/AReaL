@@ -218,9 +218,10 @@ class RedistribPlanner:
         return list(gather_plan.values()) + list(scatter_plan.values())
 
     def derive_plan_bcast(
-        self, dests: Dict[int, List[Hashable]], keys: List[str]
+        self, dests: Dict[int, List[Hashable]], keys: List[str] | Tuple[str]
     ) -> List[RedistribStep]:
-        assert isinstance(keys, list), type(keys)
+        assert isinstance(keys, (list, tuple)), type(keys)
+        keys = list(keys)
         self.dests = dests
 
         # Get all requried data IDs.

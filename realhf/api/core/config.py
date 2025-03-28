@@ -4,7 +4,7 @@
 
 import dataclasses
 import enum
-from typing import *
+from typing import Any, Dict, List, Optional
 
 import realhf.base.cluster as cluster
 import realhf.base.topology as topology
@@ -68,33 +68,6 @@ class ModelName:
     @property
     def name(self):
         return str(self)
-
-
-@dataclasses.dataclass(unsafe_hash=True)
-class ModelFamily:
-    """An identifier for the HF model type, such as llama, gpt2, etc.
-
-    :param _class: The class of the model, e.g., "llama". This is the registered
-        name in the ``register_hf_family`` function. Please refer to the files
-        in ``realhf/api/from_hf`` for a list of all supported models.
-    :type _class: str
-    :param size: The size of the model. This parameter is only used by the ``search``
-        allocation mode and will be ignored otherwise.
-    :type size: int
-    :param is_critic: Indicates whether the model is a critic or reward model,
-        as opposed to a standard LLM.
-    :type is_critic: bool
-    """
-
-    _class: str
-    size: int = 0
-    is_critic: bool = False
-
-    def __repr__(self):
-        s = f"{self._class}-{self.size}"
-        if self.is_critic:
-            s += "-critic"
-        return s
 
 
 @dataclasses.dataclass

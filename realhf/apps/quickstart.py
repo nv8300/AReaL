@@ -12,8 +12,10 @@ import sys
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from rich.panel import Panel
 
-from realhf.api.quickstart.entrypoint import QUICKSTART_FN
+from realhf.api.cli_args import console, highlighter, print_config_help
+from realhf.api.quickstart.entrypoint import QUICKSTART_CONFIG_CLASSES, QUICKSTART_FN
 from realhf.base.cluster import spec as cluster_spec
 from realhf.base.importing import import_module
 from realhf.base.prologue import (
@@ -32,29 +34,79 @@ import_module(
 import realhf.experiments.benchmark.profile_exp
 
 
+def print_help(exp_type):
+    """Print comprehensive help with rich formatting"""
+    config_class = QUICKSTART_CONFIG_CLASSES[exp_type]()
+
+    # Main help panel
+    console.print(
+        Panel.fit(
+            f"[header]Configuration Help for {exp_type}[/header]", border_style="border"
+        )
+    )
+
+    # Configuration options section
+    console.print("\n[title]CONFIGURATION OPTIONS[/title]")
+    print_config_help(config_class)
+
+    # Usage section
+    console.print("\n[title]USAGE[/title]")
+    usage_code = f"python -m realhf.apps.quickstart {exp_type} --config ./your/config.yaml [OPTIONS]"
+    console.print(highlighter(usage_code))
+
+    # Examples section
+    console.print("\n[title]EXAMPLE OVERRIDES[/title]")
+    example_code = f"python -m realhf.apps.quickstart {exp_type} --config ./your/config.yaml dataset.path=/my/dataset.jsonl actor.optimizer.lr=2e-5"
+    console.print(highlighter(example_code))
+
+    # Footer
+    console.print("\n[dim]Use [bold]--help[/bold] to show this message again[/dim]")
+
+
 def main():
-    parser = argparse.ArgumentParser(prog="ReaL Quickstart")
+    # Create parser with add_help=False to disable automatic --help
+    parser = argparse.ArgumentParser(prog="ReaL Quickstart", add_help=False)
+
+    # Add custom help argument that won't conflict
+    parser.add_argument(
+        "--help", action="store_true", help="Show this help message and exit"
+    )
+
     subparsers = parser.add_subparsers(dest="cmd", help="sub-command help")
     subparsers.required = True
+
     for k, v in QUICKSTART_FN.items():
-        subparser = subparsers.add_parser(k)
+        # Create subparser with add_help=False
+        subparser = subparsers.add_parser(k, add_help=False)
+
+        # Add custom help to subparser
         subparser.add_argument(
-            "--show-args",
-            action="store_true",
-            help="Show all legal CLI arguments for this experiment.",
+            "--help", action="store_true", help="Show help for this command"
         )
         subparser.add_argument(
             PROLOGUE_FLAG_NAME,
             type=str,
             help="Set config (*.yaml) for this experiment.",
         )
+
         subparser.set_defaults(func=v)
+
+    # Parse known args first to check for help
     args = vars(parser.parse_known_args()[0])
-    if args["show_args"]:
-        sys.argv = [sys.argv[0], "--help"]
-        QUICKSTART_FN[args["cmd"]]()
+
+    # Handle help at both main and subcommand levels
+    if args["help"]:
+        if args["cmd"]:
+            # Subcommand help
+            print_help(args["cmd"])
+        else:
+            # Main help
+            parser.print_help()
         return
 
+    # Continue with normal execution
+    if not args["cmd"]:
+        parser.print_help()
     experiment_name = ""
     trial_name = ""
 

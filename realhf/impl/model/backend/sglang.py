@@ -17,6 +17,7 @@ import torch.multiprocessing as mp
 import transformers
 from tqdm.asyncio import tqdm
 
+from realhf.api.cli_args import SGLangConfig
 from realhf.api.core import data_api
 from realhf.api.core.model_api import (
     APIGenerateInput,
@@ -29,7 +30,6 @@ from realhf.api.core.model_api import (
     PipelinableEngine,
     register_backend,
 )
-from realhf.api.quickstart.model import SGLangConfig
 from realhf.base import (
     cluster,
     constants,

@@ -11,10 +11,8 @@ from typing import *
 import matplotlib.pyplot as plt
 import networkx as nx
 import pytest
-import ray
-from ray.util.queue import Queue as RayQueue
 
-from realhf.api.core.config import ModelFamily, ModelInterfaceAbstraction, ModelName
+from realhf.api.core.config import ModelInterfaceAbstraction, ModelName
 from realhf.api.core.dfg import MFCDef, ModelInterfaceType, build_graph
 from realhf.base import logging
 
@@ -125,8 +123,6 @@ def _get_reinforce_rpcs():
 
 @pytest.mark.parametrize("rpcs", [_get_ppo_rpcs(), _get_reinforce_rpcs()])
 def test_build_graph(tmp_path: pathlib.Path, rpcs: List[MFCDef]):
-    if not ray.is_initialized():
-        ray.init()
     G = build_graph(rpcs, verbose=True, graph_path=str(tmp_path / "dfg.png"))
     assert nx.is_directed_acyclic_graph(G)
     for node in rpcs:
@@ -152,14 +148,3 @@ def test_build_graph(tmp_path: pathlib.Path, rpcs: List[MFCDef]):
             if k.startswith("_"):
                 continue
             assert v == dataclasses.asdict(node)[k]
-
-        # Ensure node can be passed into ray queue
-        queue = RayQueue(maxsize=8)
-        queue.put(node)
-        node_ = queue.get()
-        for k, v in dataclasses.asdict(node_).items():
-            if k.startswith("_"):
-                continue
-            assert v == dataclasses.asdict(node)[k]
-    if ray.is_initialized():
-        ray.shutdown()

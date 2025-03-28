@@ -44,15 +44,16 @@ tabulate
 aiofiles
 pydantic
 isort==5.13.2
-clang-format
+clang-format==19.1.7
 ninja
 paramiko
 # To eliminate security risks
 torch>2.0.0
-black>=25.1.0
+black==25.1.0
 cookiecutter>2.1.1
 asyncio
 aiohttp
 httpx>=0.28.1
 etcd3
 protobuf<3.21
+rich

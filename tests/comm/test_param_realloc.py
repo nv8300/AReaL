@@ -15,7 +15,7 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from realhf.api.core.config import ModelFamily, ModelName, ModelShardID
+from realhf.api.core.config import ModelName, ModelShardID
 from realhf.api.core.data_api import MicroBatchSpec, SequenceSample
 from realhf.api.core.model_api import HF_MODEL_FAMILY_REGISTRY, ReaLModelConfig
 from realhf.base import constants, logging, testing, topology

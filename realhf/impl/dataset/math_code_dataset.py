@@ -58,7 +58,9 @@ def load_metadata(path):
         try:
             if "task" not in d:
                 d["task"] = "math"
-                logger.warning(f'Key "task" not found in the dataset. Use math as default task type.')
+                logger.warning(
+                    f'Key "task" not found in the dataset. Use math as default task type.'
+                )
             if d["task"] == "math":
                 d = check_math_metadata_entries(d)
             elif d["task"] == "code":
@@ -206,7 +208,7 @@ else:
             ),
         ),
         max_length=512,
-        dataset_path='/storage/datasets/full_prompts_for_r1_distilled.jsonl'
+        dataset_path="/storage/datasets/full_prompts_for_r1_distilled.jsonl",
     )
 
     dataloader = torch.utils.data.DataLoader(

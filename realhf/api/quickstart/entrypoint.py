@@ -18,6 +18,7 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, OmegaConf
 
 import realhf.api.core.system_api as system_api
+from realhf.api.cli_args import print_runtime_helper
 from realhf.base.constants import LOG_ROOT, MODEL_SAVE_ROOT, QUICKSTART_EXPR_CACHE_PATH
 from realhf.base.ray_utils import check_ray_availability
 from realhf.base.slurm_utils import check_slurm_availability
@@ -67,6 +68,8 @@ def register_quickstart_exp(config_name: str, exp_cls: Callable):
         import realhf.base.logging as logging
 
         logger = logging.getLogger("quickstart", "colored")
+
+        print_runtime_helper(OmegaConf.to_object(args))
 
         exp_name = args.experiment_name
         if args.trial_name == MISSING:

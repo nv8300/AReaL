@@ -6,16 +6,16 @@ import abc
 import asyncio
 import dataclasses
 import keyword
-from typing import *
+from typing import Any, Callable, Dict, Hashable, List, Literal, Optional, Tuple, Union
 
 import aiohttp
 import numpy as np
 import torch
 import torch.utils.data
 import transformers
-from packaging.version import Version
 
 import realhf.base.logging as logging
+from realhf.api.cli_args import GenerationHyperparameters
 from realhf.api.core.config import (
     ModelAbstraction,
     ModelBackendAbstraction,
@@ -31,87 +31,6 @@ logger = logging.getLogger("model_api")
 
 class ZeroTotalLossWeightException(Exception):
     pass
-
-
-@dataclasses.dataclass
-class GenerationHyperparameters:
-    """Generation hyperparameters.
-
-    We implement a customized generation function instead of using
-    HuggingFace's to support pipelined generation. As a result, advanced
-    generation techniques like diversity-promoting sampling or
-    repetition penalty are not supported during PPO training. However,
-    we do not find this to be a problem in practice. Increasing the
-    sampling temperature and enabling top-k/top-p sampling can produce
-    effective models.
-
-    :param n: The number of sequences to generate for this prompt.
-    :type n: int
-    :param max_new_tokens: The maximum number of new tokens to generate.
-    :type max_new_tokens: int
-    :param min_new_tokens: The minimum number of new tokens to generate.
-    :type min_new_tokens: int
-    :param greedy: Whether to use greedy decoding.
-    :type greedy: bool
-    :param top_k: The number of highest probability tokens to keep.
-    :type top_k: int
-    :param top_p: The cumulative probability of the highest probability
-        tokens to keep.
-    :type top_p: float
-    :param temperature: The temperature of the sampling process.
-    :type temperature: float
-    :param use_cuda_graph: Whether to use CUDA graph to reduce kernel
-        launch overhead during generation.
-    :type use_cuda_graph: bool
-    :param force_cudagraph_recapture: Whether to capture the CUDA graph
-        every time `generate` is called, even if the graph has been captured
-        before. This will introduce minor overhead but will release the
-        kvcache when not running generation.
-    :type force_cudagraph_recapture: bool
-    :param force_no_logits_mask: Whether to omit the logits mask. The logits
-        mask is produced when using top-k or top-p sampling, marking tokens
-        that are filtered out. This mask is used by the reference model and
-        the actor model during training to align inferred logits with those
-        during generation and produce accurate KLs. Using the logits mask with
-        top-k/top-p sampling greatly improves the stability of PPO training
-        by narrowing the action space. However, this benefit comes at the cost
-        of additional GPU memory usage. If this option is set to True, the
-        logits mask will be omitted to save GPU memory, which may lead to a
-        decrease in learning performance.
-    :type force_no_logits_mask: bool
-    """
-
-    n: int = 1
-    max_new_tokens: int = 256
-    min_new_tokens: int = 256
-    greedy: bool = False
-    top_p: float = 1.0
-    top_k: int = int(1e8)
-    temperature: float = 1.0
-    use_cuda_graph: bool = True
-    force_cudagraph_recapture: bool = True
-    force_no_logits_mask: bool = True
-
-    def __post_init__(self):
-        if self.temperature == 0.0:
-            self.greedy = True
-            self.temperature = 1.0
-        if self.top_p <= 0.0 or self.top_p > 1:
-            raise ValueError("top_p must be in (0.0, 1.0].")
-        if self.top_k <= 0:
-            raise ValueError("top_k must be a positive integer.")
-
-        if self.use_cuda_graph and Version(
-            Version(torch.__version__).base_version
-        ) < Version("2.3.0"):
-            raise ValueError(
-                f"To use CUDAGraph, ReaL's PyTorch version should be at least 2.3.0."
-            )
-
-    def new(self, **kwargs):
-        args = dataclasses.asdict(self)
-        args.update(kwargs)
-        return GenerationHyperparameters(**args)
 
 
 @dataclasses.dataclass

@@ -5,21 +5,18 @@ import copy
 import dataclasses
 import os
 import pprint
-from typing import *
+from typing import Dict
 
 import realhf.base.logging as logging
+from realhf.api.cli_args import ModelTrainEvalConfig, PPOMATHExperimentOptions
 from realhf.api.core.config import (
     DatasetAbstraction,
     ModelInterfaceAbstraction,
     ModelInterfaceType,
 )
 from realhf.api.core.dfg import MFCDef, ParamReallocHook
-from realhf.api.core.model_api import GenerationHyperparameters
 from realhf.api.core.system_api import ExperimentConfig
-from realhf.api.quickstart.dataset import PromptOnlyDatasetConfig
-from realhf.api.quickstart.device_mesh import MFCConfig
 from realhf.api.quickstart.entrypoint import register_quickstart_exp
-from realhf.api.quickstart.model import ModelTrainEvalConfig
 from realhf.experiments.common.common import CommonExperimentConfig
 from realhf.experiments.common.utils import (
     asdict,
@@ -31,198 +28,11 @@ logger = logging.getLogger("PPO Math exp", "colored")
 
 
 @dataclasses.dataclass
-class PPOHyperparameters:
-    """Configuration of PPO hyperparameters.
+class PPOMATHConfig(CommonExperimentConfig, PPOMATHExperimentOptions):
 
-    :param gen: Generation hyperparameters.
-    :type gen: GenerationHyperparameters
-    :param ppo_n_minibatches: Number of minibatches in each PPO update.
-    :type ppo_n_minibatches: int
-    :param kl_ctl: Coefficient of KL divergence rewards.
-    :type kl_ctl: float
-    :param discount: Discount factor.
-    :type discount: float
-    :param gae_lambda: Lambda factor in GAE.
-    :type gae_lambda: float
-    :param eps_clip: PPO actor probability ratio clipping factor.
-    :type eps_clip: float
-    :param value_eps_clip: PPO value clipping factor.
-    :type value_eps_clip: float
-    :param max_reward_clip: Maximum reward value.
-    :type max_reward_clip: float
-    :param reward_output_scaling: Scaling factor of the reward model output.
-    :type reward_output_scaling: float
-    :param reward_output_bias: Bias of the reward model output.
-        The number outputed by the reward model will be
-        CLIP((x - bias) * scaling, -max_reward_clip, max_reward_clip).
-    :type reward_output_bias: float
-    :param early_stop_imp_ratio: PPO update will be early stopped if importance ratio
-        exceeds this maximum value.
-    :type early_stop_imp_ratio: float
-    :param use_adaptive_kl_ctl: Whether to use adaptive KL divergence coefficient.
-    :type use_adaptive_kl_ctl: bool
-    :param adv_norm: Whether to use advantage normalization.
-    :type adv_norm: bool
-    :param value_norm: Whether to denormalize valued and normalize return predictions.
-    :type value_norm: bool
-    :param value_norm_type: Type of value normalization.
-        Either exponential moving average ("exp") or moving average ("ma").
-    :type value_norm_type: str
-    :param value_norm_beta: Exponential decay factor
-        in exponential moving average.
-    :type value_norm_beta: float
-    :param value_norm_eps: Epsilon factor in the
-        denominator of exponential moving average.
-    :type value_norm_eps: float
-    :param disable_value: A shortcut option to disable the critic model.
-    :type disable_value: bool
-    """
-
-    gen: GenerationHyperparameters = dataclasses.field(
-        default_factory=GenerationHyperparameters
-    )
-    ppo_n_minibatches: int = 4
-    kl_ctl: float = 0.1
-    discount: float = 1.0
-    gae_lambda: float = 1.0
-    eps_clip: float = 0.2
-    value_eps_clip: float = 0.2
-    max_reward_clip: float = 20.0
-    reward_output_scaling: float = 1.0
-    reward_output_bias: float = 0.0
-    early_stop_imp_ratio: float = 5.0
-    use_adaptive_kl_ctl: bool = False
-    adv_norm: bool = True
-    value_norm: bool = True
-    value_norm_type: str = dataclasses.field(
-        metadata={"choices": ["exp", "ma"]}, default="exp"
-    )
-    value_norm_beta: float = 0.99995
-    value_norm_eps: float = 1e-5
-
-    disable_value: bool = False
-    recompute_logprob: bool = False
-    fuse_rew_ref: bool = True
-
-
-@dataclasses.dataclass
-class PPOMATHConfig(CommonExperimentConfig):
-    """PPO experiment configuration.
-
-    It is a subclass of :class:`CommonExperimentConfig`,
-    so all CLI options in the base class are available.
-
-    We don't implement runtime evaluation for PPO.
-
-    We identify that the RLHF process is composed of four
-    distinct models with independent parameters and six
-    *model function calls* upon these models.
-
-    The four models are\:
-
-    - Actor\: The primary LLM that generates text.
-    - Critic\: The value function that estimates the value of a state.
-    - Ref\: The reference LLM that provides KL regularization.
-    - Rew\: The reward model that provides reward signals.
-
-    The four model function calls and their dependencies are\:
-
-    - Rollout\: Generate text from the actor model.
-    - InfReward\: Infer rewards from the reward model given generated text.
-    - InfRef\: Infer log probabilities from the reference model given generated text.
-    - InfValues\: Infer values from the critic model given generated text.
-    - TrainActor\: Train the actor model given generated text, rewards, values, and reference log probabilities.
-    - TrainCritic\: Train the critic model given generated text, rewards, values, and reference log probabilities.
-
-    This class resolves these dependencies under the hood.
-    What the users should specify are the runtime configurations
-    of models and allocations of *each model function call*.
-
-    :param actor: Runtime configuration of the primary LLM.
-    :type actor: ModelTrainEvalConfig
-    :param critic: Runtime configuration of the critic model of PPO.
-    :type critic: ModelTrainEvalConfig
-    :param ref: Runtime configuration of the reference LLM.
-    :type ref: ModelTrainEvalConfig
-    :param rew: Runtime configuration of the reward LLM.
-    :type rew: ModelTrainEvalConfig
-    :param actor_train: :class:`MFCConfig` for TrainActor.
-    :type actor_train: MFCConfig
-    :param critic_train: :class:`MFCConfig` for TrainCritic.
-    :type critic_train: MFCConfig
-    :param actor_gen: :class:`MFCConfig` for Rollout.
-    :type actor_gen: MFCConfig
-    :param critic_inf: :class:`MFCConfig` for InfValues.
-    :type critic_inf: MFCConfig
-    :param rew_inf: :class:`MFCConfig` for InfReward.
-    :type rew_inf: MFCConfig
-    :param ref_inf: :class:`MFCConfig` for InfRef.
-    :type ref_inf: MFCConfig
-    :param dataset: Dataset configuration.
-    :type dataset: PromptOnlyDatasetConfig
-    :param ppo: Configuration for the PPO algorithm.
-    :type ppo: PPOHyperparameters
-    :param group_size: The number of answers remained for each prompt.
-    :type group_size: int
-    :param generation_size: The number of answers sampled for each prompt.
-        Among them, only `group_size` samples are remained according to
-        the reward score, aka best-of-n sampling. If None, use `group_size`.
-    :type generation_size: Optional[int]
-    :param mask_no_eos_with_zero: Whether to mask out the reward if an
-        answer is truncated due to exceeding the length limit.
-    :type mask_no_eos_with_zero: bool
-    :param mask_too_long: Whether to mask out the PPO loss if an
-        answer is truncated due to exceeding the length limit.
-    :type mask_too_long: bool
-    :param check_verifier_status: If True, raise an error
-        when the reward is all-zero. This usually indicates a bug
-        of the verifier.
-    :type check_verifier_status: bool
-    :param group_adv_norm: Whther to use grouped advantage
-        normaliztion in GRPO.
-    :type group_adv_norm: bool
-    """
-
-    actor: ModelTrainEvalConfig = dataclasses.field(
-        default_factory=ModelTrainEvalConfig
-    )
-    critic: ModelTrainEvalConfig = dataclasses.field(
-        default_factory=ModelTrainEvalConfig
-    )
-    ref: ModelTrainEvalConfig = dataclasses.field(default_factory=ModelTrainEvalConfig)
-
-    # for manual allocation only
-    actor_train: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    critic_train: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    actor_gen: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    critic_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    rew_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    ref_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-    actor_inf: MFCConfig = dataclasses.field(default_factory=MFCConfig)
-
-    dataset: PromptOnlyDatasetConfig = dataclasses.field(
-        default_factory=PromptOnlyDatasetConfig
-    )
-
-    ppo: PPOHyperparameters = dataclasses.field(default_factory=PPOHyperparameters)
-
-    group_size: int = 1
-    generation_size: Optional[int] = None
-    mask_no_eos_with_zero: bool = False
-    ref_ema_eta: Optional[float] = None
-    group_adv_norm: bool = False
-    mask_too_long: bool = False
-    rw_type: Optional[str] = "sparse"
-    check_xml_format: bool = False
-
-    check_verifier_status: bool = False
-
-    dataset_filter_threshold: float = 100.0
-    dataset_max_filter_percentage: float = 0.0
-
-    def __post_init__(self):
-
-        self.ppo_kwargs = dict(
+    @property
+    def ppo_kwargs(self):
+        return dict(
             n_minibatches=self.ppo.ppo_n_minibatches,
             kl_ctl=self.ppo.kl_ctl,
             discount=self.ppo.discount,
@@ -341,8 +151,8 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_type=self.actor.type,
             model_path=self.actor.path,
             interface_impl=actor_interface,
-            input_keys=["packed_prompts", "task_ids"],
-            output_keys=rollout_output_keys,
+            input_keys=("packed_prompts", "task_ids"),
+            output_keys=tuple(rollout_output_keys),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
@@ -354,8 +164,8 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_type=self.actor.type,
             model_path=self.actor.path,
             interface_impl=actor_interface,
-            input_keys=["packed_input_ids"],
-            output_keys=["packed_logprobs"],
+            input_keys=("packed_input_ids",),
+            output_keys=("packed_logprobs",),
             output_key_remap=dict(logprobs="packed_logprobs"),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
@@ -366,8 +176,8 @@ class PPOMATHConfig(CommonExperimentConfig):
             interface_type=ModelInterfaceType.INFERENCE,
             interface_impl=rw_interface,
             min_n_seqs_per_pass=1 / self.group_size,
-            input_keys=["packed_input_ids", "packed_prompts", "task_ids"],
-            output_keys=["rewards"],
+            input_keys=("packed_input_ids", "packed_prompts", "task_ids"),
+            output_keys=("rewards",),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
@@ -387,8 +197,8 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_path=self.ref.path,
             interface_impl=ref_interface,
             min_n_seqs_per_pass=1 / self.group_size,
-            input_keys=inf_ref_inputs,
-            output_keys=inf_ref_outputs,
+            input_keys=tuple(inf_ref_inputs),
+            output_keys=tuple(inf_ref_outputs),
             output_key_remap=dict(logprobs="packed_ref_logprobs"),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
@@ -402,8 +212,8 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_type=self.critic.type,
             model_path=self.critic.path,
             min_n_seqs_per_pass=1 / self.group_size,
-            input_keys=["packed_input_ids", "seq_no_eos_mask"],
-            output_keys=["values"],
+            input_keys=("packed_input_ids", "seq_no_eos_mask"),
+            output_keys=("values",),
             n_seqs=self.dataset.train_bs_n_seqs,
         )
 
@@ -426,7 +236,7 @@ class PPOMATHConfig(CommonExperimentConfig):
             model_type=self.actor.type,
             model_path=self.actor.path,
             interface_impl=actor_interface,
-            input_keys=train_actor_inputs,
+            input_keys=tuple(train_actor_inputs),
             log_return_value=True,
             min_n_seqs_per_pass=self.ppo.ppo_n_minibatches / self.group_size,
             n_seqs=self.dataset.train_bs_n_seqs,
@@ -440,7 +250,7 @@ class PPOMATHConfig(CommonExperimentConfig):
             interface_impl=critic_interface,
             model_type=self.critic.type,
             model_path=self.critic.path,
-            input_keys=[
+            input_keys=(
                 "packed_input_ids",
                 "packed_logprobs",
                 "packed_ref_logprobs",
@@ -448,7 +258,7 @@ class PPOMATHConfig(CommonExperimentConfig):
                 "values",
                 "prompt_mask",
                 "seq_no_eos_mask",
-            ],
+            ),
             log_return_value=True,
             min_n_seqs_per_pass=self.ppo.ppo_n_minibatches / self.group_size,
             n_seqs=self.dataset.train_bs_n_seqs,

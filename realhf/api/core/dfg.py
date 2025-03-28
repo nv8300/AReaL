@@ -4,14 +4,14 @@
 
 import collections
 import dataclasses
-from typing import *
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import networkx as nx
 
 import realhf.base.logging as logging
+from realhf.api.cli_args import ModelFamily
 from realhf.api.core.config import (
-    ModelFamily,
     ModelInterfaceAbstraction,
     ModelInterfaceType,
     ModelName,

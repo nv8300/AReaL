@@ -11,6 +11,12 @@ from typing import *
 
 from omegaconf import OmegaConf
 
+from realhf.api.cli_args import (
+    MFCConfig,
+    ModelTrainEvalConfig,
+    ParallelismConfig,
+    PromptOnlyDatasetConfig,
+)
 from realhf.api.core.config import (
     DatasetAbstraction,
     ModelInterfaceAbstraction,
@@ -18,10 +24,7 @@ from realhf.api.core.config import (
 )
 from realhf.api.core.dfg import MFCDef
 from realhf.api.core.system_api import ExperimentConfig
-from realhf.api.quickstart.dataset import PromptOnlyDatasetConfig
-from realhf.api.quickstart.device_mesh import MFCConfig
 from realhf.api.quickstart.entrypoint import register_quickstart_exp
-from realhf.api.quickstart.model import ModelTrainEvalConfig, ParallelismConfig
 from realhf.base import constants, logging
 from realhf.base.topology import decompose_to_three_factors
 from realhf.experiments.common.common import CommonExperimentConfig

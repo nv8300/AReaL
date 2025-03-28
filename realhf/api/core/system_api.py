@@ -7,6 +7,12 @@ import os
 from typing import Dict, List, Optional, Tuple, Union
 
 import realhf.api.core.dfg as dfg
+from realhf.api.cli_args import (
+    AutomaticEvaluator,
+    ExperimentSaveEvalControl,
+    TensorBoardConfig,
+    WandBConfig,
+)
 from realhf.api.core.config import (
     DatasetAbstraction,
     ModelAbstraction,
@@ -135,68 +141,6 @@ class ModelWorker:
 
 
 @dataclasses.dataclass
-class ExperimentSaveEvalControl:
-    """Utility object for controlling the frequency of saving and evaluation
-    during training.
-
-    ``Epoch`` refers to the number of times the training loop iterates over the entire dataset.
-    ``Step`` refers to the number of iterations running the algorithm dataflow.
-
-    This object manages independent counters for epochs, steps, and seconds. The model will
-    be saved or evaluated when any of the following conditions are met.
-
-    :param total_train_epochs: The total number of epochs to train the model.
-    :type total_train_epochs: int
-    :param save_freq_epochs: Frequency in epochs at which to save the model. If None,
-        the model will not be saved based on epoch changes during training.
-    :type save_freq_epochs: Optional[int]
-    :param save_freq_steps: Frequency in steps at which to save the model. If None,
-        the model will not be saved based on step changes during training.
-    :type save_freq_steps: Optional[int]
-    :param save_freq_secs: Frequency in seconds at which to save the model. If None,
-        the model will not be saved based on time changes during training.
-    :type save_freq_secs: Optional[int]
-    :param ckpt_freq_epochs: Frequency in epochs at which to save the model for recover.
-        The preivous checkpoint will be overwritten to reduce disk usage. If None, use save_freq_epochs.
-    :type ckpt_freq_epochs: Optional[int]
-    :param ckpt_freq_steps: Frequency in steps at which to save the model for recover. If None,
-        the model will not be saved based on step changes during training.
-    :type ckpt_freq_steps: Optional[int]
-    :param ckpt_freq_secs: Frequency in seconds at which to save the model for recover. If None,
-        the model will not be saved based on time changes during training.
-    :type ckpt_freq_secs: Optional[int]
-    :param eval_freq_epochs: Frequency in epochs at which to evaluate the model. If None,
-        the model will not be evaluated based on epoch changes during training.
-    :type eval_freq_epochs: Optional[int]
-    :param eval_freq_steps: Frequency in steps at which to evaluate the model. If None,
-        the model will not be evaluated based on step changes during training.
-    :type eval_freq_steps: Optional[int]
-    :param eval_freq_secs: Frequency in seconds at which to evaluate the model. If None,
-        the model will not be evaluated based on time changes during training.
-    :type eval_freq_secs: Optional[int]
-    :param benchmark_steps: Terminate training after this number of steps. Used for system
-        benchmarking only. Set to None for normal training.
-    :type benchmark_steps: Optional[int]
-    """
-
-    total_train_epochs: int = 1
-    # save control
-    save_freq_epochs: Optional[int] = None
-    save_freq_steps: Optional[int] = None
-    save_freq_secs: Optional[int] = None
-    # checkpointing control, only used for recover
-    ckpt_freq_epochs: Optional[int] = None
-    ckpt_freq_steps: Optional[int] = None
-    ckpt_freq_secs: Optional[int] = None
-    # eval control
-    eval_freq_epochs: Optional[int] = None
-    eval_freq_steps: Optional[int] = None
-    eval_freq_secs: Optional[int] = None
-    # benchmark
-    benchmark_steps: Optional[int] = None
-
-
-@dataclasses.dataclass
 class MasterWorker:
     base_seed: int
     exp_ctrl: ExperimentSaveEvalControl
@@ -225,54 +169,6 @@ class ExperimentScheduling:
         default_factory=list
     )
     controller_image: str = _LLM_CPU_IMAGE
-
-
-@dataclasses.dataclass
-class AutomaticEvaluator:
-    """Configuration for automatic evaluation.
-    :param data_names: Dataset for evaluation seperated by comma. Currently support datasets stored under ./evaluation/data,
-        including "aime24", "amc23" and "math_500". For example, if "aime24" and "amc23" are required for evaluation,
-        this field should be set to "aime24,amc23".
-    :type data_names: str
-    :param max_gen_tokens: Maximum number of tokens to be generated in evaluation.
-    :type max_gen_tokens: int
-    :param max_concurrent_jobs: Maximum number of concurrent evaluation jobs to submit. If number of existing jobs is equal to
-        `max_concurrent_jobs` and a new checkpoint is saved, the evaluation job will wait until former jobs complete.
-    :type max_concurrent_jobs: int
-    :param eval_job_image: Container image used to launch evaluation job. If set to None, evaluation jobs will use
-        GPU image for training.
-    :type eval_job_image: Optional[str]
-    :param initial_checkpoint_path: Initial checkpoint path to evaluate. If specified, this initial checkpoint will be evaluated,
-        results will be stored as global_step = 0.
-    :type initial_checkpoint_path: Optional[str]
-    :param prompt_type: Prompt format used in evaluation.
-    :type prompt_type: str
-    """
-
-    data_names: str = "aime24"
-    max_gen_tokens: int = 32768
-    max_concurrent_jobs: int = 3
-    eval_job_image: Optional[str] = None
-    initial_checkpoint_path: Optional[str] = None
-    prompt_type: str = "deepscaler"
-
-
-@dataclasses.dataclass
-class WandBConfig:
-    mode: str = "disabled"
-    entity: Optional[str] = None
-    project: Optional[str] = None
-    name: Optional[str] = None
-    job_type: Optional[str] = None
-    group: Optional[str] = None
-    notes: Optional[str] = None
-    tags: Optional[List[str]] = None
-    config: Optional[Dict] = None
-
-
-@dataclasses.dataclass
-class TensorBoardConfig:
-    path: Optional[str] = None
 
 
 @dataclasses.dataclass
