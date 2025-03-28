@@ -1,7 +1,0 @@
-{
-    "cluster_type": "ray",
-    "cluster_name": "ray_cluster",
-    "fileroot": "/storage/ray/experiments",
-    "default_mount": "/storage:/storage",
-    "n_gpus_per_node": 8
-}

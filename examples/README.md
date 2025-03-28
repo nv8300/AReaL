@@ -34,7 +34,7 @@ This tutorial provides a Docker image. Below are the tested software versions:
 | Git LFS | Refer to: https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage. Mainly used for downloading models, datasets, and AReaL project code. |
 | Docker | 27.5.1 |
 |NVIDIA Container Toolkit|[Installing the NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)|
-| AReaL Image | `ghcr.io/inclusionai/areal-runtime:v0.1.0`. This image includes AReaL's runtime dependencies and Ray components. |
+| AReaL Image | `ghcr.io/inclusionai/areal-runtime:v0.2.0`. This image includes AReaL's runtime dependencies and Ray components. |
 
 Since the installation of NVIDIA Drivers and CUDA, as well as the mounting of shared storage, depends on node configurations and system versions, please complete these installations independently. This tutorial does not cover their setup.
 
@@ -76,7 +76,7 @@ If the script in this section fails to execute or encounters errors due to envir
 
 Since shared storage is used, downloading only needs to be done on one node.
 
-## Code and Cluster Configuration
+## Code
 Clone the AReaL project code to `/storage/codes`:
 
 
@@ -86,27 +86,6 @@ cd /storage/codes/
 git clone https://github.com/inclusionAI/AReaL
 ```
 
-Create the cluster configuration file `/storage/ray/cluster_config_on_ray.json`:
-
-```bash
-mkdir -p /storage/ray/
-cd /storage/ray/
-```
-
-Write the following configuration to `/storage/ray/cluster_config_on_ray.json`:
-
-```
-{
-    "cluster_type": "ray",
-    "cluster_name": "ray_cluster",
-    "fileroot": "/storage/ray/experiments",
-    "default_mount": "/storage:/storage",
-    "n_gpus_per_node": 8
-}
-```
-
-This configuration file describes the cluster where AReaL training job runs. In particular, the fileroot path is where logs and checkpoints are stored during training.
-
 ## Dataset
 
 We provide a dataset for training. Download the dataset and place it in `/storage/datasets/`:
@@ -114,8 +93,8 @@ We provide a dataset for training. Download the dataset and place it in `/storag
 ```bash
 mkdir -p /storage/datasets/
 cd /storage/datasets/
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_prompts_for_r1_distilled.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_orz_zero.jsonl?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/boba_106k_0319.jsonl?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/orz-zero_56k_0319.jsonl?download=true
 ```
 
 ## Model
@@ -127,6 +106,7 @@ mkdir -p /storage/models
 cd /storage/models
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 ```
 
 You can also use the HuggingFace CLI to download after installing PyPI and huggingface_hub. Refer to the [official documentation](https://huggingface.co/docs/huggingface_hub/guides/cli) for details.
@@ -138,7 +118,7 @@ Before proceeding, pull the AReaL environment image, which already includes Ray 
 On the first node, start the Ray Head with the following command:
 
 ```bash
-docker run -d --name r1-ray-head --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --head --port=6379 && tail -f /dev/null"
+docker run -d --name r1-ray-head --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.2.0 /bin/bash -c "ray start --head --port=6379 && tail -f /dev/null"
 ```
 
 On all other nodes, start the Ray Worker with the following command (skip this step if you only have one node):
@@ -146,7 +126,7 @@ On all other nodes, start the Ray Worker with the following command (skip this s
 ```bash
 # RAY_HEAD_IP is the IP of the first node
 RAY_HEAD_IP=xxx.xxx.xxx.xxx
-docker run -d --name r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
+docker run -d --name r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.2.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
 ```
 
 Once all nodes are up, check the Ray cluster status by entering the container on the first node:
@@ -198,87 +178,45 @@ Demands:
 
 # RL Trainig
 
-## Single-Node Training
-
-For a single node, execute the following command to start training:
-
-```bash
-docker exec -it r1-ray-head bash
-cd /storage/codes/AReaL
-mkdir /storage/ray/train_batch_logs/
-nohup bash ./examples/train_batch_1.5B_n1.sh &> /storage/ray/train_batch_logs/n1.log &
-```
-
-After starting, check the training launch information in the log file `/storage/ray/train_batch_logs/n1.lo`g:
-
-```
-Log Dir: /storage/ray/train_batch_logs/ppo-zero-distill-1.5B-n1/20250222-104411
-Task Count: 1
-2025-02-22 10:44.11 Task 0 started: ppo-zero-distill-1.5B-n1 deepseek-ai__DeepSeek-R1-Distill-Qwen-1.5B prompts.jsonl 1024 8 1 actor_gen:d4p1m2,*:d4p2m1 16384 128 1 0.001
-```
-
-Based on the Log Dir, you can check the specific logs for the currently running training task. The log path is `{Log Dir}/{task_id}.log`. For example, `/storage/ray/train_batch_logs/ppo-zero-distill-1.5B-n1/20250222-104411/0.log`:
-
-```
-20250222-10:44:15.581 quickstart INFO: Running ppo-math experiment.
-20250222-10:44:15.581 quickstart INFO: Logs will be dumped to /storage/ray/experiments/logs/root/ppo-zero-distill-1.5B-n1/1024x8-n1
-20250222-10:44:15.581 quickstart INFO: Model checkpoints will be saved to /storage/ray/experiments/checkpoints/root/ppo-zero-distill-1.5B-n1/1024x8-n1
-20250222-10:44:17.100 quickstart INFO: Launching experiments with RAY...
-```
-
-If errors occur during execution (e.g., keywords like "Error" appear), refer to the troubleshooting section.
-
-## Distributed Training
-
 Before starting distributed training, ensure the Ray cluster is up and running properly.
 Then, on the first node (where the Ray Head is located), enter the container:
 
 ```
 docker exec -it r1-ray-head bash
 cd /storage/codes/AReaL
-mkdir /storage/ray/train_batch_logs/
 ```
 
-Choose a task that matches your hardware environment and run it:
+Choose a config file that matches your hardware environment and run it:
 
 ```bash
-# For 1.5B model on 4 nodes, log file is n4.log
-nohup bash ./examples/train_batch_1.5B_n4.sh &> /storage/ray/train_batch_logs/n4.log &
-# For 1.5B model on 16 nodes, log file is n16.log
-nohup bash ./examples/train_batch_1.5B_n16.sh &> /storage/ray/train_batch_logs/n16.log &
-# For 7B model on 4 nodes, log file is 7n4.log
-nohup bash ./examples/train_batch_7B_n4.sh &> /storage/ray/train_batch_logs/7n4.log &
-# For 7B model on 16 nodes, log file is 7n16.log
-nohup bash ./examples/train_batch_7B_n16.sh &> /storage/ray/train_batch_logs/7n16.log &
+python3 -m realhf.apps.quickstart ppo-math --config ./examples/configs/7B-distill/ppo-7B-distill-gpus-128.yaml
 ```
 
-After starting, check the training launch information in the log file `/storage/ray/train_batch_logs/{corresponding log file name}.log` (e.g., `7n16.log`):
+After starting, check the training launch information:
 
 ```
-Log Dir: /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631
-Task Count: 1
-2025-02-22 10:26.31 Task 0 started: ppo-zero-distill-7B-n16 deepseek-ai__DeepSeek-R1-Distill-Qwen-7B prompts_7b_progress_20k.jsonl 1024 16 16 vllm.d16p1m4+d32p2m1 16384 128 4 0.01
-```
+              ╭─────────────────────────────────────────────────╮               
+              │ Setting PPOMATHConfig with the Following Values │               
+              ╰─────────────────────────────────────────────────╯               
 
-Based on the Log Dir, you can check the specific logs for the currently running training task. The log path is `{Log Dir}/{task_id}.log`. For example, `/storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log`:
-
-```
+───────────────────────── Current Configuration Begin ──────────────────────────
+actor (ModelTrainEvalConfig)
+    actor.type (ModelFamily)
+        actor.type._class (str) - qwen2
+        actor.type.size (int) - 7
+        actor.type.is_critic (bool) - False
+...
+────────────────────────── Current Configuration End ───────────────────────────
+ 
 20250222-10:26:34.877 quickstart INFO: Running ppo-math experiment.
-20250222-10:26:34.877 quickstart INFO: Logs will be dumped to /storage/ray/experiments/logs/root/ppo-zero-distill-7B-n16/1024x16-n16
-20250222-10:26:34.877 quickstart INFO: Model checkpoints will be saved to /storage/ray/experiments/checkpoints/root/ppo-zero-distill-7B-n16/1024x16-n16
+20250222-10:44:15.581 quickstart INFO: Logs will be dumped to /storage/ray/experiments/logs/root/ppo-7B-distill-gpus-128/512x16
+20250222-10:44:15.581 quickstart INFO: Model checkpoints will be saved to /storage/ray/experiments/checkpoints/root/ppo-7B-distill-gpus-128/512x16
 20250222-10:26:36.408 quickstart INFO: Launching experiments with RAY...
 ```
 
 If errors occur during execution (e.g., keywords like "Error" appear), refer to the troubleshooting section.
 
 ## Commandline Options
-The `./examples/train_batch_{1.5/7}B_n{1/4/16}.sh` scripts contain pre-configured training parameters, and all of these scripts ultimately launch the training using the following command:
-
-```bash
-python3 -m realhf.apps.quickstart ppo-math option1=arg1 option2=arg2 ...
-```
-
-The command-line arguments like `option1=arg1` are parsed by [hydra](https://hydra.cc/), and each configuration item is a `dataclasses.dataclass` in the Python code. You can use the following command to view all the command-line arguments that can be passed in the experiment:
 
 ```bash
 python3 -m realhf.apps.quickstart ppo-math --help
@@ -287,17 +225,15 @@ python3 -m realhf.apps.quickstart ppo-math --help
 The descriptions of the important parameters are as follows:
 
 
-+ `MODE`: It is always `ray`, and do not change it to other values when referring to this tutorial for training.
-+ `BASE_MODEL_PATH`: The path of the model.
-+ `DATA_PATH`: The path of the dataset jsonl file
-+ `CLUSTER_SPEC_PATH`: Set it to the path of cluster_config.json
++ `mode`: It is always `ray`, and do not change it to other values when referring to this tutorial for training.
++ `{actor|critic|ref}.path`: The path of the model.
++ `dataset.path`: The path of the dataset jsonl file
++ `external_configs.cluster_config`: Set config for cluster_config. e.g. fileroot is the root path for saving traning outputs.
 
 + `n_nodes`: The number of nodes
 + `n_gpus_per_node`: The number of GPUs per node
-+ `allocation_mode`: The GPU allocation and 3D parallel strategy of the model in the experiment, mainly in the following two forms:
-	+ `d${DP}m${TP}p${PP}`: Where the three integers DP, TP, and PP respectively represent the degrees of data parallelism, tensor parallelism, and pipeline parallelism, and the product of the three integers should be equal to the total number of GPUs (i.e. DPxTPxPP=#GPUs). In this configuration, generation and training use the entire GPU cluster and the same parallel strategy. If you want to use vLLM for generation, you also need to set `actor.vllm.hybrid_train=True` and `actor.vllm.enforce_eager=True`. Note that PP must be 1 (vLLM does not support PP temporarily). 
-    + `actor_gen:d${DP1}p${TP1}m{PP1},*:d{DP2}p{PP2}m{MP2}`: Setting parallel stratgies for generation and training separately. Generation and training use the entire GPU cluster but they could use different parallel strategies. The configuration must satisfy DP1xTP1xPP1=DP2xPP2xMP2=#GPU. If you want to use vLLM for generation, you also need to set `actor.vllm.hybrid_train=True` and `actor.vllm.enforce_eager=True`. Note that PP1 must be 1 (vLLM does not support PP temporarily).
-	+ `vllm.d${DP1}m${TP1}p${PP1}+d${DP2}m${TP2}p${PP2}`: Configure the parallel strategies for vLLM generation and training respectively. The generation and training use disjoint sets of GPUs, and the sum of the number of GPUs used by the two should be equal to the total number of GPUs, i.e DP1xTP1xPP1+DP2xTP2xPP2=#GPUs. If you want to use vLLM for generation, you have to set `actor.vllm.hybrid_train=False` and PP1=1. It is recommended to set `actor.vllm.enforce_eager=False` to accelerate vLLM generation. 
++ `allocation_mode`: The GPU allocation and 3D parallel strategy of the model in the experiment, mainly in the following form:
+	+ `sglang.d${DP1}m${TP1}p${PP1}+d${DP2}m${TP2}p${PP2}`: Configure the parallel strategies for SGLang generation and training respectively. The generation and training use disjoint sets of GPUs, and the sum of the number of GPUs used by the two should be equal to the total number of GPUs, i.e DP1xTP1xPP1+DP2xTP2xPP2=#GPUs.
 
 + `exp_ctrl.total_train_epochs`: The number of training epochs (i.e., the number of times to iterate over the entire dataset)
 + `exp_ctrl.save_freq_{epochs|steps|secs}`: The frequency of saving the model parameters in persistent storage. If it is set to null, the model will not be saved.
@@ -318,7 +254,6 @@ Here, we use the logs from a 16-node run (the same applies to 1-node and 4-node 
 Search for the keyword `Epoch` in the logs to see the total number of Epochs and Steps:
 
 ```bash
-# grep "Epoch" /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:11:56.997 master worker INFO: Epoch 1/1 step 1/19 (global step 1) finishes. Average #tokens per batch is 111847. #End to end# execution time: *2124.429*s. Total time consumption: 2283.862s. 
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:52:02.719 master worker INFO: Epoch 1/1 step 2/19 (global step 2) finishes. Average #tokens per batch is 111847. #End to end# execution time: *2405.716*s. Total time consumption: 4689.584s. 
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-12:27:25.084 master worker INFO: Epoch 1/1 step 3/19 (global step 3) finishes. Average #tokens per batch is 111847. #End to end# execution time: *2122.318*s. Total time consumption: 6811.949s. Estimated remaining time: 33957.093s. 
@@ -342,7 +277,6 @@ Search for the keyword `task_reward` in the logs.
 
 
 ```bash
-# grep "task_reward" /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:11:56.991 master worker INFO: RPC name actor_train returns {'ppo_approx_kl': -2.2640759198111482e-05, 'actor_loss': 1.1128166761409375e-06, 'actor_clip_ratio': 2.1122002635820536e-07, 'importance_weight': 1.0000014305114746, 'task_reward': -0.2996826171875, 'kl_reward': -2.27004832709099e-07, 'final_reward': -0.30145370960235596, 'advantage': 0.003593671601265669, 'avg_seq_len': 7907.8955078125, 'avg_prompt_len': 105.845703125, 'n_tokens': 127828786.0, 'n_valid_tokens': 127828786.0, 'n_seqs': 16384.0, 'no_eos_ratio': 0.122802734375, 'disable_value': 1.0, 'mask_no_eos_with_zero': 0.0}
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:52:02.712 master worker INFO: RPC name actor_train returns {'ppo_approx_kl': -2.493159263394773e-05, 'actor_loss': -3.846728588996484e-07, 'actor_clip_ratio': 3.16789424914532e-07, 'importance_weight': 0.9999996423721313, 'task_reward': -0.6793212890625, 'kl_reward': -2.536311853873485e-07, 'final_reward': -0.6813737154006958, 'advantage': 0.004844569601118565, 'avg_seq_len': 8203.9453125, 'avg_prompt_len': 111.892578125, 'n_tokens': 132580185.0, 'n_valid_tokens': 132580185.0, 'n_seqs': 16384.0, 'no_eos_ratio': 0.13812255859375, 'disable_value': 1.0, 'mask_no_eos_with_zero': 0.0}
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-12:27:25.077 master worker INFO: RPC name actor_train returns {'ppo_approx_kl': -2.572356243035756e-05, 'actor_loss': -5.036404786551429e-07, 'actor_clip_ratio': 1.8960582792715286e-07, 'importance_weight': 0.9999992251396179, 'task_reward': -0.6280517578125, 'kl_reward': -2.988609537624143e-07, 'final_reward': -0.6303607225418091, 'advantage': 0.004505862481892109, 'avg_seq_len': 7834.6328125, 'avg_prompt_len': 108.900390625, 'n_tokens': 126578395.0, 'n_valid_tokens': 126578395.0, 'n_seqs': 16384.0, 'no_eos_ratio': 0.11761474609375, 'disable_value': 1.0, 'mask_no_eos_with_zero': 0.0}
@@ -367,7 +301,7 @@ The evaluation code is located in the `evaluation` folder of the repository. As 
 
 Start a new container to execute the evaluation script (note: evaluation requires updates to certain Python libraries; avoid using the training container for this task):
 ```
-docker run -d --name r1-eval --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "tail -f /dev/null"
+docker run -d --name r1-eval --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.2.0 /bin/bash -c "tail -f /dev/null"
 docker exec -it r1-eval bash
 ```
 
@@ -431,48 +365,26 @@ The runtime of the evaluation depends on factors such as the maximum generation 
 
 If the following content does not address your issue, feel free to raise a GitHub Issue.
 
+
 ## Automatic Recover
 
-### How to
+When setting `recover_mode=auto` and the experiment config remains the same, AReaL will try to discover previous checkpoints and recover the experiment from it.
 
-The training is exclusively initiated through the ./examples/train_batch_{1.5/7}B_n{1/4/16}.sh scripts. These scripts include parameter entries in the format below and automatically exit upon completing the parameter set execution:
+If the automatic recover fails, please check the following possibilities:
 
-```bash
-ALL_PARAMS=(
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-)
-```
+* The `experiment_name` and `trial_name` in the training script differ from the previous run.
 
-Training may abort due to OOM errors or hardware failures. In such scenarios, manually rerunning the train_batch script will automatically resume from the latest recoverable checkpoint.
-
-For persistent failures requiring frequent manual intervention, modify the train_batch script by duplicating identical parameter sets to enable automated retries. For instance, to implement 3 retry attempts, configure three identical parameter groups as demonstrated:
-
-```bash
-ALL_PARAMS=(
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-)
-```
-
-### Why does the training task restart from the beginning instead of resuming from the last Step?
-
-Check the following possibilities:
-
-* The EXP_NAME and TRIAL_NAME in the training script differ from the previous run.
-
-* Changes in Batch Size (1024 in the parameters), Group Size (16 in the parameters), or the number of nodes (${NODES} in the parameters).
+* Changes in Batch Size (`dataset.train_bs_n_seqs` in the parameters), Group Size (`group_size` in the parameters), or the number of nodes (`n_nodes` in the parameters).
 
 * No recover checkpoint was created in the previous run. By default, recover checkpoints are generated under two conditions:
 
 	* After the completion of the second Step.
 
-	* When a Step completes and more than 600 seconds have passed since the last recover checkpoint. This parameter is in the `examples/train_{tiny|small|large}_on_ray.sh` script, named `exp_ctrl.ckpt_freq_secs=600`.
+	* When a Step completes and more than 600 seconds have passed since the last recover checkpoint. This parameter is in the `./examples/configs/*/*.yaml`, named `exp_ctrl.ckpt_freq_secs=600`.
 
 You can confirm if a recover checkpoint was generated by searching in the log:
 
 ```bash
-# grep "Dumped recover" /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:52:02.760 master worker INFO: Dumped recover info to file.
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-12:27:25.105 master worker INFO: Dumped recover info to file.
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-13:05:58.264 master worker INFO: Dumped recover info to file.

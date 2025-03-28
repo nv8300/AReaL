@@ -42,7 +42,7 @@
 |Git LFS|参考：[Git LFS 安装指南](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage) 主要用于下载模型，数据集，AReaL 工程代码|
 |Docker|版本：27.5.1|
 |NVIDIA Container Toolkit|[NVIDIA Container Toolkit 安装指南](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)|
-|镜像|ghcr.io/inclusionai/areal-runtime:v0.1.0 这个镜像中包含运行依赖和 Ray 的相关组件|
+|镜像|ghcr.io/inclusionai/areal-runtime:v0.2.0 这个镜像中包含运行依赖和 Ray 的相关组件|
 
 
 由于 NVIDIA Driver 和 CUDA 的安装以及共享存储的挂载与节点和系统版本有关，请自行完成安装，本教程不进行介绍。
@@ -84,7 +84,7 @@ python ./examples/env/setup_env_and_start_train.py setup --private_key_file /pat
 
 由于使用了共享存储，下载操作只需要在一个节点上完成。
 
-## 代码和集群配置
+## 代码
 将 AReaL 项目代码克隆到 `/storage/codes` 中：
 
 
@@ -94,34 +94,14 @@ cd /storage/codes/
 git clone https://github.com/inclusionAI/AReaL.git
 ```
 
-创建集群配置文件 `/storage/ray/cluster_config_on_ray.json`：
-```bash
-mkdir -p /storage/ray/
-cd /storage/ray/
-```
-
-将以下配置写入到 `/storage/ray/cluster_config_on_ray.json`：
-
-```
-{
-    "cluster_type": "ray",
-    "cluster_name": "ray_cluster",
-    "fileroot": "/storage/ray/experiments",
-    "default_mount": "/storage:/storage",
-    "n_gpus_per_node": 8
-}
-```
-
-集群配置文件是运行 AReaL 训练任务的描述文件。其中 fileroot 所指向的路径是训练过程中日志，checkpoint 的存储路径。
-
 ## 数据集
 
 我们提供了用于训练的数据集，请下载数据集并放置在 /storage/datasets/
 ```bash
 mkdir -p /storage/datasets/
 cd /storage/datasets/
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_prompts_for_r1_distilled.jsonl?download=true
-wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/full_orz_zero.jsonl?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/boba_106k_0319.jsonl?download=true
+wget https://huggingface.co/datasets/inclusionAI/AReaL-RL-Data/resolve/main/data/orz-zero_56k_0319.jsonl?download=true
 ```
 
 ## 模型
@@ -132,6 +112,7 @@ mkdir -p /storage/models
 cd /storage/models
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 ```
 
 你也可以在安装 PyPI 和 huggingface_hub 后利用 huggingface CLI 进行下载，具体请参考[官方文档](https://huggingface.co/docs/huggingface_hub/guides/cli)
@@ -144,7 +125,7 @@ GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/deepseek-ai/DeepSeek-R1-D
 在第一个节点上执行如下命令启动 Ray Head：
 
 ```bash
-docker run -d --name r1-ray-head --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --head --port=6379 && tail -f /dev/null"
+docker run -d --name r1-ray-head --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.2.0 /bin/bash -c "ray start --head --port=6379 && tail -f /dev/null"
 ```
 
 在除了第一个节点以外的每个节点上执行如下命令启动 Ray Worker（如果只有一个节点，这一步就不用执行了）：
@@ -152,7 +133,7 @@ docker run -d --name r1-ray-head --privileged --gpus all --network host --shm-si
 ```bash
 # RAY_HEAD_IP 是第一个节点的 IP
 RAY_HEAD_IP=xxx.xxx.xxx.xxx
-docker run -d --name r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
+docker run -d --name r1-ray-worker --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.2.0 /bin/bash -c "ray start --address=$RAY_HEAD_IP:6379 && tail -f /dev/null"
 ```
 
 全部启动完成后，在第一个节点上通过 docker exec 进入容器，查看 Ray 集群的状态：
@@ -204,88 +185,44 @@ Demands:
 
 # RL训练
 
-## 单节点训练
-
-
-只有一个节点的情况下，执行如下命令即可启动训练：
-
-```bash
-docker exec -it r1-ray-head bash
-cd /storage/codes/AReaL
-mkdir /storage/ray/train_batch_logs/
-nohup bash ./examples/train_batch_1.5B_n1.sh &> /storage/ray/train_batch_logs/n1.log &
-```
-
-启动后，通过 `/storage/ray/train_batch_logs/n1.log` 日志文件查看训练的启动信息：
-
-```
-Log Dir: /storage/ray/train_batch_logs/ppo-zero-distill-1.5B-n1/20250222-104411
-Task Count: 1
-2025-02-22 10:44.11 Task 0 started: ppo-zero-distill-1.5B-n1 deepseek-ai__DeepSeek-R1-Distill-Qwen-1.5B prompts.jsonl 1024 8 1 actor_gen:d4p1m2,*:d4p2m1 16384 128 1 0.001
-```
-
-根据 Log Dir，可以查看当前运行的训练任务的具体日志，日志路径为 `{Log Dir}/{任务编号}.log`。比如 `/storage/ray/train_batch_logs/ppo-zero-distill-1.5B-n1/20250222-104411/0.log`：
-
-```
-20250222-10:44:15.581 quickstart INFO: Running ppo-math experiment.
-20250222-10:44:15.581 quickstart INFO: Logs will be dumped to /storage/ray/experiments/logs/root/ppo-zero-distill-1.5B-n1/1024x8-n1
-20250222-10:44:15.581 quickstart INFO: Model checkpoints will be saved to /storage/ray/experiments/checkpoints/root/ppo-zero-distill-1.5B-n1/1024x8-n1
-20250222-10:44:17.100 quickstart INFO: Launching experiments with RAY...
-```
-
-如果运行过程中出现错误（比如出现 Error 关键字），请参考Troubleshooting解决。
-
-## 分布式训练
-
 在进行分布式训练之前，请确保已经启动了 Ray 集群，并且集群状态正常。
 然后在第一个节点（Ray Head 所在节点），进入容器：
 
 ```
 docker exec -it r1-ray-head bash
 cd /storage/codes/AReaL
-mkdir /storage/ray/train_batch_logs/
 ```
 
-选择匹配硬件环境的一个任务运行即可：
+选择匹配硬件环境的一个配置运行即可：
 
 ```bash
-# 对应 1.5B 模型 4 节点，日志文件名为 n4.log
-nohup bash ./examples/train_batch_1.5B_n4.sh &> /storage/ray/train_batch_logs/n4.log &
-# 对应 1.5B 模型 16 节点，日志文件名为 n16.log
-nohup bash ./examples/train_batch_1.5B_n16.sh &> /storage/ray/train_batch_logs/n16.log &
-# 对应 7B 模型 4 节点，日志文件名为 7n4.log
-nohup bash ./examples/train_batch_7B_n4.sh &> /storage/ray/train_batch_logs/7n4.log &
-# 对应 7B 模型 16 节点，日志文件名为 7n16.log
-nohup bash ./examples/train_batch_7B_n16.sh &> /storage/ray/train_batch_logs/7n16.log &
+python3 -m realhf.apps.quickstart ppo-math --config ./examples/configs/7B-distill/ppo-7B-distill-gpus-128.yaml
 ```
 
-启动后，通过 `/storage/ray/train_batch_logs/{对应的日志文件名}.log` 日志文件查看训练的启动信息（以 `7n16.log` 为例）：
-
+启动后，在终端可以看到启动日志：
 ```
-Log Dir: /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631
-Task Count: 1
-2025-02-22 10:26.31 Task 0 started: ppo-zero-distill-7B-n16 deepseek-ai__DeepSeek-R1-Distill-Qwen-7B prompts_7b_progress_20k.jsonl 1024 16 16 vllm.d16p1m4+d32p2m1 16384 128 4 0.01
-```
+              ╭─────────────────────────────────────────────────╮               
+              │ Setting PPOMATHConfig with the Following Values │               
+              ╰─────────────────────────────────────────────────╯               
 
-根据 Log Dir，可以查看当前运行的训练任务的具体日志，日志路径为 `{Log Dir}/{任务编号}.log`。比如 `/storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log`：
-
-```
+───────────────────────── Current Configuration Begin ──────────────────────────
+actor (ModelTrainEvalConfig)
+    actor.type (ModelFamily)
+        actor.type._class (str) - qwen2
+        actor.type.size (int) - 7
+        actor.type.is_critic (bool) - False
+...
+────────────────────────── Current Configuration End ───────────────────────────
+ 
 20250222-10:26:34.877 quickstart INFO: Running ppo-math experiment.
-20250222-10:26:34.877 quickstart INFO: Logs will be dumped to /storage/ray/experiments/logs/root/ppo-zero-distill-7B-n16/1024x16-n16
-20250222-10:26:34.877 quickstart INFO: Model checkpoints will be saved to /storage/ray/experiments/checkpoints/root/ppo-zero-distill-7B-n16/1024x16-n16
+20250222-10:44:15.581 quickstart INFO: Logs will be dumped to /storage/ray/experiments/logs/root/ppo-7B-distill-gpus-128/512x16
+20250222-10:44:15.581 quickstart INFO: Model checkpoints will be saved to /storage/ray/experiments/checkpoints/root/ppo-7B-distill-gpus-128/512x16
 20250222-10:26:36.408 quickstart INFO: Launching experiments with RAY...
 ```
 
 如果运行过程中出现错误（比如出现 Error 关键字），请参考Troubleshooting解决。
 
 ## Commandline Options
-`./examples/train_batch_{1.5/7}B_n{1/4/16}.sh` 脚本包含了预先配置好的训练参数，这些脚本最终都是通过以下命令启动训练的：
-
-```bash
-python3 -m realhf.apps.quickstart ppo-math option1=arg1 option2=arg2 ...
-```
-
-其中`option1=arg1`这些命令行参数是通过[hydra](https://hydra.cc/)进行解析的，其中每一条配置项都是python代码中的`dataclasses.dataclass`。用以下命令可以查看实验中所有可以传递的命令行参数：
 
 ```bash
 python3 -m realhf.apps.quickstart ppo-math --help
@@ -293,16 +230,15 @@ python3 -m realhf.apps.quickstart ppo-math --help
 
 其中重要的参数的说明如下：
 
-+ MODE：总是为 ray，参考本教程进行训练时不要改成其他值。
-+ BASE_MODEL_PATH：模型的路径
-+ DATA_PATH：数据集 jsonl 文件的路径
-+ CLUSTER_SPEC_PATH：设置成 cluster_config.json 的路径
++ mode：总是为 ray，参考本教程进行训练时不要改成其他值。
++ {actor|critic|ref}.path：模型的路径
++ dataset.path：数据集 jsonl 文件的路径
++ external_configs.cluster_config：设置 cluster_config 的配置，比如 fileroot 是存放训练输出的根目录。
 
 + n_nodes：节点数量
-+ n_gpus_per_node：每个节点的GPU数量
-+ allocation_mode：实验中模型的GPU分配和3D并行策略，推荐的策略主要有以下两种形式:
-    + `actor_gen:d${DP1}p${TP1}m{PP1},*:d{DP2}p{PP2}m{MP2}`: 分别配置生成和推理的并行策略，训练和推理共用所有GPU，可以采用不同的并行策略。两种策略中三个整数相乘均需要等于GPU总量，即DP1xTP1xPP1=DP2xPP2xMP2=#GPU。这种情况下如果希望使用vLLM加速生成，需要设置`actor.vllm.hybrid_train=True`和`actor.vllm.enforce_eager=True`,且PP1必须是1（vLLM推理暂时不支持PP）。
-	+ `vllm.d${DP1}m${TP1}p${PP1}+d${DP2}m${TP2}p${PP2}`: 分别配置vLLM生成和训练的并行策略，生成和训练分离，使用两部分不同的GPU。二者所用的GPU数量相加要等于总的 GPU 数量，即DP1xTP1xPP1+DP2xTP2xPP2=#GPUs。在这种配置下，必须设置`actor.vllm.hybrid_train=False`。可以设置`actor.vllm.enforce_eager=False`加速vLLM生成。使用vLLM时同样需要保证PP1=1。
++ n_gpus_per_node：每个节点的 GPU 数量
++ allocation_mode：实验中模型的 GPU 分配和 3D 并行策略，推荐的策略有以下形式:
+	+ `sglang.d${DP1}m${TP1}p${PP1}+d${DP2}m${TP2}p${PP2}`: 分别配置 SGLang 生成和训练的并行策略，生成和训练分离，使用两部分不同的 GPU。二者所用的GPU数量相加要等于总的 GPU 数量，即 DP1xTP1xPP1+DP2xTP2xPP2=#GPUs。
 
 + exp_ctrl.total_train_epochs：训练的 epoch 数量（即迭代整个数据集的次数）
 + exp_ctrl.save_freq_{epochs|steps|secs}：保存持久化存储模型参数的频率，如果设成 null 会不保存模型
@@ -323,7 +259,6 @@ python3 -m realhf.apps.quickstart ppo-math --help
 搜索日志中的 Epoch 关键字，查看总的 Epoch 数量和 Step 数量：
 
 ```bash
-# grep "Epoch" /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:11:56.997 master worker INFO: Epoch 1/1 step 1/19 (global step 1) finishes. Average #tokens per batch is 111847. #End to end# execution time: *2124.429*s. Total time consumption: 2283.862s. 
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:52:02.719 master worker INFO: Epoch 1/1 step 2/19 (global step 2) finishes. Average #tokens per batch is 111847. #End to end# execution time: *2405.716*s. Total time consumption: 4689.584s. 
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-12:27:25.084 master worker INFO: Epoch 1/1 step 3/19 (global step 3) finishes. Average #tokens per batch is 111847. #End to end# execution time: *2122.318*s. Total time consumption: 6811.949s. Estimated remaining time: 33957.093s. 
@@ -346,7 +281,6 @@ python3 -m realhf.apps.quickstart ppo-math --help
 搜索日志中的 `task_reward` 关键字
 
 ```bash
-# grep "task_reward" /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:11:56.991 master worker INFO: RPC name actor_train returns {'ppo_approx_kl': -2.2640759198111482e-05, 'actor_loss': 1.1128166761409375e-06, 'actor_clip_ratio': 2.1122002635820536e-07, 'importance_weight': 1.0000014305114746, 'task_reward': -0.2996826171875, 'kl_reward': -2.27004832709099e-07, 'final_reward': -0.30145370960235596, 'advantage': 0.003593671601265669, 'avg_seq_len': 7907.8955078125, 'avg_prompt_len': 105.845703125, 'n_tokens': 127828786.0, 'n_valid_tokens': 127828786.0, 'n_seqs': 16384.0, 'no_eos_ratio': 0.122802734375, 'disable_value': 1.0, 'mask_no_eos_with_zero': 0.0}
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:52:02.712 master worker INFO: RPC name actor_train returns {'ppo_approx_kl': -2.493159263394773e-05, 'actor_loss': -3.846728588996484e-07, 'actor_clip_ratio': 3.16789424914532e-07, 'importance_weight': 0.9999996423721313, 'task_reward': -0.6793212890625, 'kl_reward': -2.536311853873485e-07, 'final_reward': -0.6813737154006958, 'advantage': 0.004844569601118565, 'avg_seq_len': 8203.9453125, 'avg_prompt_len': 111.892578125, 'n_tokens': 132580185.0, 'n_valid_tokens': 132580185.0, 'n_seqs': 16384.0, 'no_eos_ratio': 0.13812255859375, 'disable_value': 1.0, 'mask_no_eos_with_zero': 0.0}
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-12:27:25.077 master worker INFO: RPC name actor_train returns {'ppo_approx_kl': -2.572356243035756e-05, 'actor_loss': -5.036404786551429e-07, 'actor_clip_ratio': 1.8960582792715286e-07, 'importance_weight': 0.9999992251396179, 'task_reward': -0.6280517578125, 'kl_reward': -2.988609537624143e-07, 'final_reward': -0.6303607225418091, 'advantage': 0.004505862481892109, 'avg_seq_len': 7834.6328125, 'avg_prompt_len': 108.900390625, 'n_tokens': 126578395.0, 'n_valid_tokens': 126578395.0, 'n_seqs': 16384.0, 'no_eos_ratio': 0.11761474609375, 'disable_value': 1.0, 'mask_no_eos_with_zero': 0.0}
@@ -371,7 +305,7 @@ python3 -m realhf.apps.quickstart ppo-math --help
 
 启动一个新的容器用于运行评估脚本（评估需要更新部分 python 库，请不要在训练容器中进行）：
 ```
-docker run -d --name r1-eval --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.1.0 /bin/bash -c "tail -f /dev/null"
+docker run -d --name r1-eval --privileged --gpus all --network host --shm-size 700g -v /storage:/storage ghcr.io/inclusionai/areal-runtime:v0.2.0 /bin/bash -c "tail -f /dev/null"
 docker exec -it r1-eval bash
 ```
 
@@ -434,43 +368,22 @@ nohup python eval_and_aggregate.py \
 
 如果以下内容没有解答你的问题，欢迎在 GitHub Issue 中进行提问。
 
-## 自动重启
+## 自动恢复
 
-### How to
+当设置了 `recover_mode=auto` 并且训练配置和之前相同，AReaL 会尝试找到之前生成的 checkpoints 并且从这个 checkpoints 恢复训练。
 
-训练都是通过 `./examples/train_batch_{1.5/7}B_n{1/4/16}.sh` 脚本启动的，脚本中存在如下格式的 1 行启动参数，`train_batch` 脚本在执行完该组参数后自动停止：
+如果自动恢复失败，有这些可能性：
 
-```bash
-ALL_PARAMS=(
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-)
-```
-OOM 或硬件故障都会导致训练终止，这种情况下可以手动重新执行一次 `train_batch` 脚本，会自动从上次训练的 recover checkpoint 处继续训练。
-
-如果频繁遇到故障，需要手动重启的情况时，可以修改`train_batch`脚本，设置多组相同的参数，让脚本自动重跑。比如我希望这组训练参数可以重跑3次，那么参数设置为完全相同的3组即可，如下所示：
-```bash
-ALL_PARAMS=(
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-    "${EXP_NAME} ${MODEL_NAME} ${DATASET_NAME} 1024 16 ${NODES} ${ALLOCATION_MODE} 16384 128 4 0.01"
-)
-```
-
-### 为什么训练任务重启后没有在上次的 Step 之后继续而是从头开始训练了
-
-有以下可能性，请检查：
-
-+ 训练脚本里的 EXP_NAME 和TRIAL_NAME与之前的不一样
-+ Batch Size（参数里的 1024），Group Size（参数里的 16），节点数（参数里的 ${NODES}）三个值发生了变化
++ 训练配置里的 `experiment_name` 和 `trial_name` 与之前的不一样
++ Batch Size（参数里的 `dataset.train_bs_n_seqs`），Group Size（参数里的 `group_size`），节点数（参数里的 `n_nodes`）三个值发生了变化
 + 之前的训练没有创建过 recover checkpoint 。默认的 recover checkpoint 规则有 2 个：
 	+ 从第 2 个 step 完成后才生成 recover checkpoint
-	+ 一个 step 训练完成，且距离上次 recover checkpoint 时间超过 600s，则生成一个新的 recover checkpoint。这个参数在 `examples/train_{tiny|small|large}_on_ray.sh` 脚本里，参数名为 ：`exp_ctrl.ckpt_freq_secs=600`。
+	+ 一个 step 训练完成，且距离上次 recover checkpoint 时间超过 600s，则生成一个新的 recover checkpoint。这个参数在 `./examples/configs/*/*.yaml` 文件里，参数名为 ：`exp_ctrl.ckpt_freq_secs=600`。
 
 
-可以通过搜索 Dumped recover 确认是否生成过 recover checkpoint
+可以通过搜索 `Dumped recover` 确认是否生成过 recover checkpoint
 
 ```bash
-# grep "Dumped recover" /storage/ray/train_batch_logs/ppo-zero-distill-7B-n16/20250222-102631/0.log
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-11:52:02.760 master worker INFO: Dumped recover info to file.
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-12:27:25.105 master worker INFO: Dumped recover info to file.
 (master_worker/0 pid=96390, ip=xxx.xxx.xxx.xxx) 20250222-13:05:58.264 master worker INFO: Dumped recover info to file.
