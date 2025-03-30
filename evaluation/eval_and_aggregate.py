@@ -14,7 +14,7 @@ from utils import load_jsonl
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--data_names", default="math_500,aime24,amc23", type=lambda x: x.split(",")
+        "--data_names", default="aime24,aime25", type=lambda x: x.split(",")
     )
     parser.add_argument(
         "--model_path",
@@ -25,11 +25,13 @@ def parse_args():
     parser.add_argument("--num_sample_nodes", default=8, type=int)
     parser.add_argument("--samples_per_node", default=4, type=int)
     parser.add_argument("--n_sampling", default=32, type=int)
-    parser.add_argument("--prompt_type", default="deepscaler", type=str)
+    parser.add_argument("--prompt_type", default="r1-distilled-qwen", type=str)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--evaluate_train", action="store_true")
     parser.add_argument("--max_gen_tokens", default=32768, type=int)
-
+    parser.add_argument("--temperature", default=0.6, type=float)
+    parser.add_argument("--top_p", default=0.95, type=float)
+    parser.add_argument("--top_k", default=-1, type=int)
     args = parser.parse_args()
     if args.output_path is None:
         args.output_path = args.model_path
@@ -119,10 +121,8 @@ def get_metrics(fname_pattern, tokenizer, is_greedy):
 
 def process_single_data_name(args, data_name, base_dir, tokenizer):
     cur_dir = os.path.join(base_dir, data_name)
-    greedy_prefix = f"test_{args.prompt_type}_-1_seed0_t0.0_s0_e-1_n1"
-    sampling_prefix = (
-        f"test_{args.prompt_type}_-1_seed*_t0.6_s0_e-1_n{args.samples_per_node}"
-    )
+    greedy_prefix = f"test_{args.prompt_type}_-1_seed0_t0.0_topp1.00_topk-1_s0_e-1_n1"
+    sampling_prefix = f"test_{args.prompt_type}_-1_seed*_t{args.temperature:.1f}_topp{args.top_p:.2f}_topk{args.top_k}_s0_e-1_n{args.samples_per_node}"
 
     greedy_length_metrics = get_metrics(
         os.path.join(cur_dir, greedy_prefix + ".jsonl"), tokenizer, True
@@ -148,25 +148,15 @@ if __name__ == "__main__":
     print(f"Evaluation output to {args.output_path}")
     assert args.num_sample_nodes * args.samples_per_node >= args.n_sampling
 
-    eval_dir = (
-        "math_eval"
-        if args.max_gen_tokens == 4096
-        else f"math_eval_{args.max_gen_tokens}"
-    )
+    eval_dir = f"math_eval_{args.max_gen_tokens}"
 
     base_dir = os.path.join(args.output_path, eval_dir)
     os.makedirs(base_dir, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-    result_path = os.path.join(base_dir, f"aggregate_parallel_{args.prompt_type}.json")
-
-    if (
-        args.prompt_type == "qwen-boxed"
-        and os.path.exists(os.path.join(base_dir, f"aggregate_parallel.json"))
-        and not os.path.exists(result_path)
-    ):
-        os.system(
-            f'cp {os.path.join(base_dir, f"aggregate_parallel.json")} {result_path}'
-        )
+    result_path = os.path.join(
+        base_dir,
+        f"aggregate_parallel_{args.prompt_type}_{args.temperature:.1f}_{args.top_p:.2f}_{args.top_k}.json",
+    )
 
     if not os.path.exists(result_path) or args.overwrite or args.evaluate_train:
         log_path = os.path.join(base_dir, "logs")
@@ -186,6 +176,7 @@ if __name__ == "__main__":
                 stdout=f,
                 stderr=f,
             )
+        print(f"Evaluation: greedy finished!")
 
         for i in range(args.num_sample_nodes):
             with open(
@@ -205,11 +196,15 @@ if __name__ == "__main__":
                         ",".join(args.data_names),
                         args.prompt_type,
                         args.output_path,
+                        str(args.temperature),
+                        str(args.top_p),
+                        str(args.top_k),
                     ],
                     text=True,
                     stdout=f,
                     stderr=f,
                 )
+            print(f"Evaluation: seed {i + 1} finished!")
 
         all_results = dict()
         for data_name in args.data_names:
@@ -235,5 +230,6 @@ if __name__ == "__main__":
             table.add_row([k, *[round(v[x], 1) for x in field_names[1:]]])
 
         print(table)
-    except:
+    except ModuleNotFoundError as e:
+
         print(json.dumps(all_results, indent=2))

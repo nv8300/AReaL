@@ -143,8 +143,23 @@ PROMPT_TEMPLATES = {
         "{output}",
         "\n\n",
     ),
-    "deepscaler": (
+    "AReaL-boba-SFT": (
         "<｜begin▁of▁sentence｜><｜User｜>{input}\nPlease reason step by step, and put your final answer within \\boxed{{}}.<｜Assistant｜><think>\n",
+        "{output}",
+        "\n\n",
+    ),
+    "AReaL-boba": (
+        "<｜User｜>{input}\nPlease reason step by step, and put your final answer within \\boxed{{}}.<｜Assistant｜><think>\n",
+        "{output}",
+        "\n\n",
+    ),
+    "r1-distilled-qwen": (
+        "<｜begin▁of▁sentence｜><｜User｜>{input}\nPlease reason step by step, and put your final answer within \\boxed{{}}.<｜Assistant｜><think>\n",
+        "{output}",
+        "\n\n",
+    ),
+    "r1-distilled-qwen-gpqa": (
+        "<｜User｜>{input}\nPlease reason step-by-step and put your choice letter without any other text with \\boxed{{}} in the end.<｜Assistant｜><think>\n",
         "{output}",
         "\n\n",
     ),

@@ -7,7 +7,7 @@ export VLLM_LOGGING_LEVEL=DEBUG
 MODEL_NAME_OR_PATH=$1
 # OUTPUT_DIR=$1
 MAX_GEN_TOKENS=${2:-4096}
-DATA_NAME=${3:-"math_500,math,gsm8k,train_amc_aime,aime24,amc23"}
+DATA_NAME=${3:-"aime24,aime23"}
 PROMPT_TYPE=${4:-"qwen-boxed"}
 
 SPLIT="test"
@@ -33,11 +33,7 @@ python3 -u math_eval.py \
     --end -1 \
     --use_vllm \
     --max_tokens_per_call=$MAX_GEN_TOKENS \
-    --data_parallel_size 8 \
+    --tensor_parallel_size 2 \
     --save_outputs \
     # --overwrite \
 
-chown -R admin ${OUTPUT_DIR}/math_eval
-
-ray stop
-exit

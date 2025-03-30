@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--temperature", default=0, type=float)
     parser.add_argument("--n_sampling", default=1, type=int)
     parser.add_argument("--top_p", default=1, type=float)
+    parser.add_argument("--top_k", default=-1, type=int)
     parser.add_argument("--max_tokens_per_call", default=4096, type=int)
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--use_vllm", action="store_true")
@@ -43,13 +44,12 @@ def parse_args():
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--use_safetensors", action="store_true")
     parser.add_argument("--num_shots", type=int, default=0)
-    parser.add_argument("--data_parallel_size", type=int, default=1)
     parser.add_argument(
         "--apply_chat_template",
         action="store_true",
         help="Apply chat template to prompt.",
     )
-    parser.add_argument("--pipeline_parallel_size", type=int, default=1)
+    parser.add_argument("--tensor_parallel_size", type=int, default=1)
     parser.add_argument(
         "--adapt_few_shot",
         action="store_true",
@@ -59,6 +59,10 @@ def parse_args():
     args.top_p = (
         1 if args.temperature == 0 else args.top_p
     )  # top_p must be 1 when using greedy sampling (vllm)
+    args.top_k = -1 if args.temperature == 0 else args.top_k
+
+    available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
+    args.data_parallel_size = len(available_gpus) // args.tensor_parallel_size
     return args
 
 
@@ -157,41 +161,6 @@ def generate_in_parallel(requests, model_args, sampling_params, data_parallel_si
     object_refs = [run_inference_one_model.remote(*x) for x in inputs]
     results = ray.get(object_refs)
     ray.shutdown()
-    return undistribute(results)
-
-
-from multiprocessing import Pool
-
-import numpy as np
-
-
-def run_inference_one_model_v2(
-    # model_args, sampling_params, requests, cuda_visisble_devices,
-    args,
-):
-    model_args, sampling_params, requests, cuda_visisble_devices = args
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
-        [str(x) for x in cuda_visisble_devices]
-    )
-    # print("OS.ENVIRON", json.dumps({x: os.environ[x]  for x in sorted(dict(os.environ))}))
-    llm = LLM(**model_args)
-    return llm.generate(requests, sampling_params=sampling_params)
-
-
-def generate_in_parallel_v2(requests, model_args, sampling_params, data_parallel_size):
-
-    # print("OUT_OS_ENVIRON", json.dumps({x: os.environ[x]  for x in sorted(dict(os.environ))}))
-    all_cuda_visisble_devices = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
-    requests = [list(x) for x in distribute(data_parallel_size, requests)]
-    inputs = (
-        (model_args, sampling_params, req, cuda_visisble_devices)
-        for req, cuda_visisble_devices in zip(
-            requests, np.array_split(all_cuda_visisble_devices, data_parallel_size)
-        )
-    )
-
-    with Pool(processes=128) as pool:
-        results = pool.map(run_inference_one_model_v2, inputs)
     return undistribute(results)
 
 
@@ -295,16 +264,12 @@ def prepare_data(data_name, args):
     # get out_file name
     dt_string = datetime.now().strftime("%m-%d_%H-%M")
     model_name = "/".join(args.model_name_or_path.split("/")[-2:])
-    out_file_prefix = f"{args.split}_{args.prompt_type}_{args.num_test_sample}_seed{args.seed}_t{args.temperature}"
+    out_file_prefix = f"{args.split}_{args.prompt_type}_{args.num_test_sample}_seed{args.seed}_t{args.temperature:.1f}_topp{args.top_p:.2f}_topk{args.top_k}"
     output_dir = args.output_dir
     if not os.path.exists(output_dir):
         output_dir = f"outputs/{output_dir}"
 
-    eval_dir = (
-        "math_eval"
-        if args.max_tokens_per_call == 4096
-        else f"math_eval_{args.max_tokens_per_call}"
-    )
+    eval_dir = f"math_eval_{args.max_tokens_per_call}"
 
     out_file = f"{output_dir}/{eval_dir}/{data_name}/{out_file_prefix}_s{args.start}_e{args.end}_n{args.n_sampling}.jsonl"
     os.makedirs(f"{output_dir}/{eval_dir}/{data_name}", exist_ok=True)
@@ -339,31 +304,34 @@ def setup(args):
         if args.data_parallel_size <= 1:
             llm = LLM(
                 model=args.model_name_or_path,
-                tensor_parallel_size=len(available_gpus) // args.pipeline_parallel_size,
-                # distributed_executor_backend="ray",
-                pipeline_parallel_size=args.pipeline_parallel_size,
-                enforce_eager=True,
-                max_model_len=32768,
+                tensor_parallel_size=args.tensor_parallel_size,
+                distributed_executor_backend="ray",
                 trust_remote_code=True,
-                swap_space=16,
+                enforce_eager=True,
+                # dtype="float16",
+                disable_custom_all_reduce=True,
+                disable_sliding_window=True,
+                max_model_len=32768,
+                enable_chunked_prefill=False,
+                swap_space=32,
             )
         else:
             print(
-                f"TP = {len(available_gpus) // (args.pipeline_parallel_size * args.data_parallel_size)}\n",
-                f"PP = {args.pipeline_parallel_size}\n",
+                f"TP = {args.tensor_parallel_size}\n",
                 f"DP = {args.data_parallel_size}",
             )
             llm = dict(
                 model=args.model_name_or_path,
-                tensor_parallel_size=len(available_gpus)
-                // (args.pipeline_parallel_size * args.data_parallel_size),
-                # distributed_executor_backend="ray",
-                pipeline_parallel_size=args.pipeline_parallel_size,
+                tensor_parallel_size=args.tensor_parallel_size,
+                distributed_executor_backend="ray",
                 trust_remote_code=True,
-                disable_custom_all_reduce=True,
                 enforce_eager=True,
+                # dtype="float16",
+                disable_custom_all_reduce=True,
+                disable_sliding_window=True,
                 max_model_len=32768,
-                swap_space=16,
+                enable_chunked_prefill=False,
+                swap_space=32,
             )
         tokenizer = None
         if args.apply_chat_template:
@@ -513,6 +481,7 @@ def main(llm, tokenizer, data_name, args):
                 temperature=args.temperature,
                 seed=args.seed,
                 top_p=args.top_p,
+                top_k=args.top_k,
                 max_tokens=args.max_tokens_per_call,
                 n=args.n_sampling,
                 stop=stop_words,
@@ -653,7 +622,8 @@ def main(llm, tokenizer, data_name, args):
             result_json[f"pass@16"] = pass_at_k_v2(all_samples, k=16)
         if args.n_sampling > 8:
             result_json[f"pass@8"] = pass_at_k_v2(all_samples, k=8)
-        result_json[f"pass@1"] = pass_at_k_v2(all_samples, k=1)
+        result_json["pass@1"] = pass_at_k_v2(all_samples, k=1)
+        result_json["acc"] = result_json["pass@1"]
 
     # save outputs
     if len(processed_samples) < len(all_samples) and args.save_outputs:

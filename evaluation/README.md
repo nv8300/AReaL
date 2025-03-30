@@ -16,10 +16,31 @@ pip install prettytable timeout_decorator
 Run evaluation:
 ```bash
 python eval_and_aggregate.py \
---model_path {MODEL_PATH} \
---output_path {OUTPUT_PATH} \
---data_names math_500,aime24,amc23 \
+--model_path ${MODEL_PATH} \
+--output_path ${OUTPUT_PATH} \
+--data_names aime24 \
 --max_gen_tokens 32768 \ # max number of tokens to generate, defaults to 32768
 ```
 
 The results are saved in `{OUTPUT_PATH}/math_eval_32768`.
+
+Evaluate AReaL-boba-RL-7B:
+```bash
+python eval_and_aggregate.py \
+--model_path ${MODEL_PATH} \
+--output_path ${OUTPUT_PATH} \
+--data_names aime24,aime25 \
+--prompt_type AReaL-boba \
+--output_path outputs --temperature 1.0
+```
+
+Evaluate AReaL-boba-SFT-32B:
+```bash
+python eval_and_aggregate.py \
+--model_path ${MODEL_PATH} \
+--output_path ${OUTPUT_PATH} \
+--data_names aime24,aime25 \
+--prompt_type AReaL-boba-SFT \
+--samples_per_node 2 --num_sample_nodes 16 \
+--output_path outputs --temperature 0.6
+```
