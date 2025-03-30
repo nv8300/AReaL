@@ -17,6 +17,10 @@ MAX_GEN_TOKENS=${4:-4096}
 DATA_NAME=${5:-"math_500,math,gsm8k,train_amc_aime,aime24,amc23"}
 PROMPT_TYPE=${6:-"qwen-boxed"}
 OUTPUT_DIR=${7:-$MODEL_NAME_OR_PATH}
+temperature=${8:-"1.0"}
+top_p=${9:-"1.0"}
+top_k=${10:-"-1"}
+
 
 # English open datasets
 # DATA_NAME="math_500,math,gsm8k,train_amc_aime,aime24,amc23"
@@ -30,14 +34,15 @@ python3 -u math_eval.py \
     --prompt_type ${PROMPT_TYPE} \
     --num_test_sample ${NUM_TEST_SAMPLE} \
     --seed ${SEED} \
-    --temperature 0.6 \
+    --temperature $temperature \
     --n_sampling $n_sampling \
-    --top_p 0.95 \
+    --top_p $top_p \
+    --top_k $top_k \
     --start 0 \
     --end -1 \
     --use_vllm \
     --max_tokens_per_call=$MAX_GEN_TOKENS \
-    --data_parallel_size 2 \
+    --tensor_parallel_size 4 \
     --save_outputs \
     # --overwrite \
 

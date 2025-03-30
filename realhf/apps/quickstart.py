@@ -131,8 +131,9 @@ def prepare_hydra_config(name: str, prologue_path: str):
     experiment_name = get_experiment_name(config.get("experiment_name"))
     trial_name = get_trial_name(config.get("trial_name"))
     config_dir = f"{cluster_spec.fileroot}/configs/{getpass.getuser()}/{experiment_name}/{trial_name}"
+    os.makedirs(config_dir, exist_ok=True)
 
-    config.pop(PROLOGUE_EXTERNAL_CONFIG_NAME)
+    config.pop(PROLOGUE_EXTERNAL_CONFIG_NAME, {})
     with open(f"{config_dir}/{name}.yaml", "w") as f:
         f.write(OmegaConf.to_yaml(config))
 
@@ -144,7 +145,7 @@ def launch_hydra_task(
 ):
     # Disable hydra logging.
     if not any("hydra/job_logging=disabled" in x for x in sys.argv):
-        sys.argv += ["hydra/job_logging=disabled"]
+        sys.argv.insert(2, "hydra/job_logging=disabled")
 
     if (
         "--multirun" in sys.argv
@@ -154,10 +155,11 @@ def launch_hydra_task(
         raise NotImplementedError("Hydra multi-run is not supported.")
 
     # non-multirun mode, add hydra run dir
-    sys.argv += [
+    sys.argv.insert(
+        2,
         f"hydra.run.dir={cluster_spec.fileroot}/logs/{getpass.getuser()}/"
-        f"{experiment_name}/{trial_name}/hydra-outputs/"
-    ]
+        f"{experiment_name}/{trial_name}/hydra-outputs/",
+    )
 
     sys.argv.pop(1)
 
