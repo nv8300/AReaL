@@ -31,10 +31,9 @@ dependencies = [
     "huggingface_hub",
     "datasets",
     "accelerate",
-    "transformers==4.51.1",
+    "transformers==4.53.1",
     
     # Scientific computing
-    "numpy<2.0.0",
     "scipy",
     "pandas",
     "matplotlib",
@@ -53,6 +52,12 @@ dependencies = [
     "hydra-core==1.4.0.dev1",
     "packaging",
     "tabulate",
+    "gymnasium>=1.1.1",
+    "torchdata",
+    "autoflake",
+    "tensordict",
+    "pybase64",
+    "msgspec",
     
     # Monitoring and logging
     "wandb",
@@ -82,6 +87,7 @@ dependencies = [
     # Distributed computing
     "ray",
     "redis",
+    "deepspeed>=0.17.2",
     
     # Web frameworks
     "fastapi>=0.115.12",

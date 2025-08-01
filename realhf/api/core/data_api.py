@@ -8,6 +8,7 @@ import os
 import random
 import time
 from contextlib import contextmanager
+from functools import lru_cache
 
 # NOTE: We don't sue wildcard importing here because the type
 # `Sequence` has a very similar name to `SequenceSample`.
@@ -47,6 +48,7 @@ logger = logging.getLogger("api.data")
 RL_TASKS = ["math", "code", "rlhf", "stem"]
 
 
+@lru_cache(maxsize=8)
 def load_hf_tokenizer(
     model_name_or_path: str,
     fast_tokenizer=True,
@@ -65,6 +67,28 @@ def load_hf_tokenizer(
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
     return tokenizer
+
+
+@lru_cache(maxsize=8)
+def load_hf_processor_and_tokenizer(
+    model_name_or_path: str,
+    fast_tokenizer=True,
+    padding_side: Optional[str] = None,
+) -> Tuple["transformers.ProcessorMixin", transformers.PreTrainedTokenizerFast]:
+    """Load a tokenizer and processor from Hugging Face."""
+    # NOTE: use the raw type annoation will trigger cuda initialization
+    tokenizer = load_hf_tokenizer(model_name_or_path, fast_tokenizer, padding_side)
+    try:
+        processor = transformers.AutoProcessor.from_pretrained(
+            model_name_or_path, trust_remote_code=True, force_download=True
+        )
+    except Exception:
+        processor = None
+        logger.warning(
+            f"Failed to load processor for {model_name_or_path}. "
+            "Using tokenizer only. This may cause issues with some models."
+        )
+    return processor, tokenizer
 
 
 @pdclasses.dataclass

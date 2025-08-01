@@ -8,8 +8,12 @@ parts:
     chapters:
     - file: tutorial/installation
     - file: tutorial/quickstart
+    - file: tutorial/quickstart_legacy
     - file: tutorial/eval
     - file: tutorial/troubleshooting
+  - caption: Getting Started with AReaL-lite
+    chapters:
+    - file: lite/gsm8k_grpo
   - caption: References
     chapters:
     - file: references/benchmark
@@ -19,7 +23,7 @@ parts:
     - file: customization/dataset
     - file: customization/agent
     - file: customization/algorithm
-  - caption: Code Walkthrough
+  - caption: Code Walkthrough (Legacy)
     chapters:
     - file: developer/overview
     - file: developer/trainer
@@ -35,3 +39,8 @@ parts:
   - caption: Contributing
     chapters:
     - file: contrib
+  - caption: Customization (Legacy)
+    chapters:
+    - file: legacy/customization/dataset
+    - file: legacy/customization/agent
+    - file: legacy/customization/algorithm
