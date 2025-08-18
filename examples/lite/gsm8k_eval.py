@@ -1,7 +1,6 @@
 import os
 import sys
 
-import torch
 import torch.distributed as dist
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -68,6 +67,7 @@ def main(args):
         gconfig=config.gconfig,
         tokenizer=tokenizer,
         enable_thinking=False,
+        rollout_stat_scope="eval-rollout",
         dump_dir=os.path.join(
             StatsLogger.get_log_path(config.stats_logger), "generated"
         ),
@@ -79,21 +79,10 @@ def main(args):
         for item in data:
             eval_rollout.submit(item, workflow)
             cnt += 1
-    batch = eval_rollout.wait(cnt, timeout=None)
-    rewards = batch["rewards"].float()
-    with stats_tracker.scope("grpo-eval"):
-        stats_tracker.denominator(
-            n_seqs=torch.ones(
-                rewards.shape[0],
-                device=rewards.device,
-                dtype=torch.bool,
-            )
-        )
-        stats_tracker.stat(task_reward=rewards, denominator="n_seqs")
+    eval_rollout.wait(cnt, timeout=None)
 
-    print(
-        f"Evaluation results:\n{tabulate_stats(stats_tracker.export(reduce_group=group))}"
-    )
+    eval_rollout_stats = stats_tracker.export_all(reduce_group=group)
+    print(f"Evaluation results:\n{tabulate_stats(eval_rollout_stats)}")
     eval_rollout.destroy()
     dist.destroy_process_group()
 
