@@ -1,12 +1,22 @@
 from datasets import Dataset
 from datasets.distributed import split_dataset_by_node
 
+import sys
+import os
+from typing import Optional
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from examples.utils import parse_test_category_argument, load_file
-from bfcl.constants.category_mapping import PROMPT_PATH, MULTI_TURN_FUNC_DOC_PATH, MULTI_TURN_FUNC_DOC_FILE_MAPPING
+from areal.bfcl.constants.category_mapping import PROMPT_PATH, MULTI_TURN_FUNC_DOC_PATH, MULTI_TURN_FUNC_DOC_FILE_MAPPING
 
 
 def get_bfcl_dataset(split: str, tokenizer, rank: int, world_size: int, max_length: Optional[int] = None):
     all_test_file_paths, all_test_categories, all_test_entries_involved, test_cases_total = get_involved_test_entries(test_categories="multi_turn")
+
+    # check data format for Dataset
+    issues, inconsistency_idx = check_type_consistency(test_cases_total)
+    filtered_test_cases_total = [item for idx, item in enumerate(test_cases_total) if idx not in inconsistency_idx]
+    
     dataset = Dataset.from_list(test_cases_total)
     dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
     return dataset
@@ -93,53 +103,84 @@ def sort_key(entry):
 
 
 
-# def get_gsm8k_rl_dataset(
-#     path: str,
-#     split: str,
-#     tokenizer,
-#     rank: int,
-#     world_size: int,
-#     max_length: Optional[int] = None,
-# ):
-#     dataset = load_dataset(path=path, name="main", split=split)
+def check_type_consistency(data, path="root"):
+    """
+    Data type consistency check
+    """
+    
+    issues = []
+    inconsistency_idx = []
+    
+    if isinstance(data, list):
+        if not data:
+            return issues  # 空列表没有问题
+        
+        # 检查第一个元素的类型作为基准
+        first_type = type(data[0])
+        first_structure = get_structure(data[0])
+        
+        for i, item in enumerate(data):
+            current_path = f"{path}[{i}]"
+            
+            # 检查类型是否一致
+            if type(item) != first_type:
+                issues.append(f"{current_path}: type inconsistency ({type(item).__name__} vs {first_type.__name__})")
+                inconsistency_idx.append(i)
+            
+            # 如果是复杂类型，递归检查
+            if isinstance(item, (list, dict)):
+                current_structure = get_structure(item)
+                if current_structure != first_structure:
+                    issues.append(f"{current_path}: structure inconsistency")
+                    inconsistency_idx.append(i)
+                
+                # 递归检查
+                issues.extend(check_type_consistency(item, current_path))
+    
+    elif isinstance(data, dict):
+        # 检查所有字典是否有相同的键
+        keys = set(data.keys())
+        
+        for key, value in data.items():
+            current_path = f"{path}.{key}"
+            
+            # 递归检查值
+            if isinstance(value, (list, dict)):
+                issues.extend(check_type_consistency(value, current_path))
+    
+    return issues, inconsistency_idx
 
-#     def process(sample):
-#         messages = [
-#             {
-#                 "role": "user",
-#                 "content": sample["question"]
-#                 + "\nPlease put your final answer within \\boxed{}.",
-#             }
-#         ]
-#         return {"messages": messages}
 
-#     dataset = dataset.map(process).remove_columns(["question"])
+def get_structure(obj):
+    """
+    Get the type structure information of the object
+    """
+    if isinstance(obj, list):
+        if not obj:
+            return "empty_list"
+        return f"list[{get_structure(obj[0])}]"
+    
+    elif isinstance(obj, dict):
+        if not obj:
+            return "empty_dict"
+        return f"dict[{sorted(obj.keys())}]"
+    
+    else:
+        return type(obj).__name__
 
-#     # Filter out sequences longer than max_length if tokenizer and max_length are provided
-#     if max_length is not None:
-
-#         def filter_length(sample):
-#             # Tokenize the user content to check length
-#             content = sample["messages"][0]["content"]
-#             tokens = tokenizer.encode(content)
-#             return len(tokens) <= max_length
-
-#         dataset = dataset.filter(filter_length)
-
-#     dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
-#     return dataset
 
 if __name__ == '__main__':
     import os
 
-    rank = int(os.getenv("RANK"))
-    world_size = int(os.getenv("WORLD_SIZE"))
+    # rank = int(os.getenv("RANK"))
+    rank = 0
+    # world_size = int(os.getenv("WORLD_SIZE"))
+    world_size = 1
     # tokenizer = load_hf_tokenizer(config.tokenizer_path)
     tokenizer = None
 
     output_dataset = get_bfcl_dataset(rank=rank,
         world_size=world_size,
         split="train",
-        type='rl',
         tokenizer=tokenizer)
     print(output_dataset)
