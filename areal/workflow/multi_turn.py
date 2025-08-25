@@ -123,7 +123,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
             logprobs=torch.tensor(logprobs),
             loss_mask=torch.tensor(loss_mask),
             versions=torch.tensor(versions),
-            rewards=torch.tensor(float(reward * discount)),
+            rewards=torch.tensor(float(reward * discount)), # TODO：好像不用再乘以discount了吧
             attention_mask=torch.ones(len(seq), dtype=torch.bool),
         )
         res = {k: v.unsqueeze(0) for k, v in res.items()}
