@@ -1,4 +1,6 @@
-from bfcl.constants.category_mapping import TEST_COLLECTION_MAPPING, TEST_FILE_MAPPING
+import json
+
+from areal.bfcl.constants.category_mapping import TEST_COLLECTION_MAPPING, TEST_FILE_MAPPING
 
 
 def load_file(file_path, sort_by_id=False):

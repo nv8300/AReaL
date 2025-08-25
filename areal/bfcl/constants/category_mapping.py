@@ -4,7 +4,7 @@ VERSION_PREFIX = "BFCL_v3"
 
 PACKAGE_ROOT = Path(__file__).parent.parent.parent  # TODO 确认项目的路径
 
-PROMPT_PATH = PACKAGE_ROOT / "data"
+PROMPT_PATH = PACKAGE_ROOT / "bfcl/data"
 MULTI_TURN_FUNC_DOC_PATH = PROMPT_PATH / "multi_turn_func_doc"
 POSSIBLE_ANSWER_PATH = PROMPT_PATH / "possible_answer"
 
