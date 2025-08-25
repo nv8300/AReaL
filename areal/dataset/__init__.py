@@ -44,6 +44,18 @@ def get_custom_dataset(
             max_length=max_length,
             **kwargs,
         )
+    elif "bfcl" in path and type == "rl":
+        from .bcfl import get_bfcl_dataset
+
+        return get_bfcl_dataset(
+            split=split,
+            tokenizer=tokenizer,
+            rank=rank,
+            world_size=world_size,
+            max_length=max_length,
+            **kwargs,
+        )
+
     elif "clevr_count_70k" in path and type == "sft":
         from .clevr_count_70k import get_clevr_count_70k_sft_dataset
 
