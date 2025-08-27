@@ -19,13 +19,13 @@ from areal.utils.hf_utils import load_hf_tokenizer
 from areal.utils.recover import RecoverHandler
 from areal.utils.saver import Saver
 from areal.utils.stats_logger import StatsLogger
-from areal.workflow.rlvr import RLVRWorkflow
+from areal.workflow.multi_turn_bfcl import MultiTurnWorkflow
 
 
-def gsm8k_reward_fn(prompt, completions, prompt_ids, completion_ids, answer, **kwargs):
-    from areal.reward.math_parser import process_results
+def bfcl_reward_fn(multi_turn_model_result_list_decoded: list[list[list[str]]], multi_turn_ground_truth_list: list[list[str]], test_entry: dict, test_category="multi_turn", model_name="qwen") -> int:
+    from areal.reward.bfcl_checker import multi_turn_checker
 
-    return int(process_results(completions, answer)[0])
+    return int(multi_turn_checker(multi_turn_model_result_list_decoded, multi_turn_ground_truth_list, test_entry, test_category, model_name))
 
 
 def main(args):
@@ -110,20 +110,24 @@ def main(args):
         config.gconfig.stop_token_ids.append(tokenizer.pad_token_id)
     if tokenizer.eos_token_id not in config.gconfig.stop_token_ids:
         config.gconfig.stop_token_ids.append(tokenizer.eos_token_id)
-    workflow = RLVRWorkflow(
-        reward_fn=gsm8k_reward_fn,
+    workflow = MultiTurnWorkflow(
+        reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig,
         tokenizer=tokenizer,
-        enable_thinking=False,
+        max_steps=config.max_step_limit,
+        turn_discount=config.turn_discount,
+        model_name=config.model_name,
         dump_dir=os.path.join(
             StatsLogger.get_log_path(config.stats_logger), "generated"
         ),
     )
-    eval_workflow = RLVRWorkflow(
-        reward_fn=gsm8k_reward_fn,
+    eval_workflow = MultiTurnWorkflow(
+        reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig.new(temperature=0.6),
         tokenizer=tokenizer,
-        enable_thinking=False,
+        max_steps=config.max_step_limit,
+        turn_discount=config.turn_discount,
+        model_name=config.model_name,
         rollout_stat_scope="eval-rollout",
         dump_dir=os.path.join(
             StatsLogger.get_log_path(config.stats_logger), "generated-eval"
