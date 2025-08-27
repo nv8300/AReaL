@@ -290,7 +290,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 self.model_name 
             )
 
-        reward = float(reward * discount)
+        reward = float(raw_reward * discount)
         logger.info(f"test_entry_id: {test_entry_id}\tturn_idx:{turn_idx}\traw_reward: {raw_reward}\treward: {reward}\ttotal_step: {all_count}")
         stats_tracker.get(self.rollout_stat_scope).scalar(reward=reward, num_turns=turn_idx, num_steps=all_count)
 
@@ -299,7 +299,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
             logprobs=torch.tensor(logprobs),
             loss_mask=torch.tensor(loss_mask),
             versions=torch.tensor(versions),
-            rewards=torch.tensor(float(reward * discount)), # TODO：好像不用再乘以discount了吧
+            rewards=torch.tensor(float(reward)),
             attention_mask=torch.ones(len(seq), dtype=torch.bool),
         )
         res = {k: v.unsqueeze(0) for k, v in res.items()}
