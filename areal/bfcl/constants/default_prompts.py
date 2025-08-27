@@ -19,18 +19,13 @@ Here is a list of functions in JSON format that you can invoke.\n{functions}\n
 
 # This is the default system prompt format
 DEFAULT_SYSTEM_PROMPT_FORMAT = "ret_fmt=python&tool_call_tag=False&func_doc_fmt=json&prompt_fmt=plaintext&style=classic"
+_PLAINTEXT_SYSTEM_PROMPT_TEMPLATE = ("{persona}{task}\n\n{tool_call_format}\n\n{multiturn_behavior}\n\n{available_tools}")
+_MARKDOWN_SYSTEM_PROMPT_TEMPLATE = "{persona}\n\n## Task\n{task}\n\n## Tool Call Format\n{tool_call_format}\n\n## Multi-turn Behavior\n{multiturn_behavior}\n\n## Available Tools\n{available_tools}"
 
 PROMPT_TEMPLATE_MAPPING = {
     "plaintext": _PLAINTEXT_SYSTEM_PROMPT_TEMPLATE,
     "markdown": _MARKDOWN_SYSTEM_PROMPT_TEMPLATE,
 }
-
-_PLAINTEXT_SYSTEM_PROMPT_TEMPLATE = (
-    "{persona}{task}\n\n{tool_call_format}\n\n{multiturn_behavior}\n\n{available_tools}"
-)
-_MARKDOWN_SYSTEM_PROMPT_TEMPLATE = "{persona}\n\n## Task\n{task}\n\n## Tool Call Format\n{tool_call_format}\n\n## Multi-turn Behavior\n{multiturn_behavior}\n\n## Available Tools\n{available_tools}"
-
-
 
 PROMPT_STYLE_TEMPLATES = {
     "classic": {

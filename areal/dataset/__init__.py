@@ -45,7 +45,7 @@ def get_custom_dataset(
             **kwargs,
         )
     elif "bfcl" in path and type == "rl":
-        from .bcfl import get_bfcl_dataset
+        from .bfcl import get_bfcl_dataset
 
         return get_bfcl_dataset(
             split=split,

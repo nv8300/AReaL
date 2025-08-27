@@ -40,6 +40,7 @@ def main(args):
 
 
     train_dataset = get_custom_dataset(
+        path="bfcl",
         rank=rank,
         world_size=world_size,
         split="train",
@@ -47,6 +48,7 @@ def main(args):
         tokenizer=tokenizer,
     )
     valid_dataset = get_custom_dataset(
+        path="bfcl",
         rank=rank,
         world_size=world_size,
         split="test",
@@ -114,9 +116,9 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig,
         tokenizer=tokenizer,
-        max_steps=config.max_step_limit,
-        turn_discount=config.turn_discount,
-        model_name=config.model_name,
+        max_steps=20,
+        turn_discount=0.95,
+        model_name="qwen",
         dump_dir=os.path.join(
             StatsLogger.get_log_path(config.stats_logger), "generated"
         ),
@@ -125,9 +127,9 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig.new(temperature=0.6),
         tokenizer=tokenizer,
-        max_steps=config.max_step_limit,
-        turn_discount=config.turn_discount,
-        model_name=config.model_name,
+        max_steps=20,
+        turn_discount=0.95,
+        model_name="qwen",
         rollout_stat_scope="eval-rollout",
         dump_dir=os.path.join(
             StatsLogger.get_log_path(config.stats_logger), "generated-eval"
