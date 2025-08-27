@@ -282,7 +282,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 break
 
         multi_turn_ground_truth_list = self.possible_answer_dict[test_entry_id]["ground_truth"]
-        reward = await self.async_reward_fn(
+        raw_reward = await self.async_reward_fn(
                 total_model_result_list_decoded,
                 multi_turn_ground_truth_list, 
                 test_entry, 
@@ -291,6 +291,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
             )
 
         reward = float(reward * discount)
+        logger.info(f"test_entry_id: {test_entry_id}\tturn_idx:{turn_idx}\traw_reward: {raw_reward}\treward: {reward}\ttotal_step: {all_count}")
         stats_tracker.get(self.rollout_stat_scope).scalar(reward=reward, num_turns=turn_idx, num_steps=all_count)
 
         res = dict(
