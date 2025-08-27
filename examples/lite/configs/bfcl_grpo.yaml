@@ -12,9 +12,6 @@ seed: 1
 total_train_epochs: 10
 tokenizer_path: ${actor.path}
 async_training: true
-max_step_limit: 20
-turn_discount: 0.9
-model_name: qwen
 
 # datasets
 train_dataset:
@@ -47,7 +44,7 @@ rollout:
 actor:
   experiment_name: ${experiment_name}
   trial_name: ${trial_name}
-  path: Qwen/Qwen2.5-1.5B-Instruct
+  path: Qwen/Qwen2.5-7B-Instruct
   init_from_scratch: false
   disable_dropout: true
   gradient_checkpointing: false

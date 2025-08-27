@@ -255,7 +255,7 @@ def resolve_ast_call(elem):
     return {func_name: args_dict}
 
 
-    def resolve_ast_by_type(value):
+def resolve_ast_by_type(value):
     if isinstance(value, ast.Constant):
         if value.value is Ellipsis:
             output = "..."
