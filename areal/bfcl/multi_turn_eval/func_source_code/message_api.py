@@ -74,17 +74,22 @@ class MessageAPI:
             scenario (Dict): A dictionary containing message data.
         """
         DEFAULT_STATE_COPY = deepcopy(DEFAULT_STATE)
-        self._random = random.Random((scenario.get("random_seed", 200191)))
-        self.generated_ids = scenario.get(
-            "generated_ids", DEFAULT_STATE_COPY["generated_ids"]
-        )
-        self.user_count = scenario.get("user_count", DEFAULT_STATE_COPY["user_count"])
-        self.user_map = scenario.get("user_map", DEFAULT_STATE_COPY["user_map"])
-        self.inbox = scenario.get("inbox", DEFAULT_STATE_COPY["inbox"])
-        self.message_count = scenario.get(
-            "message_count", DEFAULT_STATE_COPY["message_count"]
-        )
-        self.current_user = scenario.get("current_user", DEFAULT_STATE_COPY["current_user"])
+        if not scenario:
+            self._random = random.Random(200191)
+            self.generated_ids = DEFAULT_STATE_COPY["generated_ids"]
+            self.user_count = DEFAULT_STATE_COPY["user_count"]
+            self.user_map = DEFAULT_STATE_COPY["user_map"]
+            self.inbox = DEFAULT_STATE_COPY["inbox"]
+            self.message_count = DEFAULT_STATE_COPY["message_count"]
+            self.current_user = DEFAULT_STATE_COPY["current_user"]
+        else:
+            self._random = random.Random((scenario.get("random_seed", 200191)))
+            self.generated_ids = scenario.get("generated_ids", DEFAULT_STATE_COPY["generated_ids"])
+            self.user_count = scenario.get("user_count", DEFAULT_STATE_COPY["user_count"])
+            self.user_map = scenario.get("user_map", DEFAULT_STATE_COPY["user_map"])
+            self.inbox = scenario.get("inbox", DEFAULT_STATE_COPY["inbox"])
+            self.message_count = scenario.get("message_count", DEFAULT_STATE_COPY["message_count"])
+            self.current_user = scenario.get("current_user", DEFAULT_STATE_COPY["current_user"])
 
     def __eq__(self, value: object) -> bool:
         if not isinstance(value, MessageAPI):

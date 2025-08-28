@@ -9,13 +9,13 @@ cluster:
     type: nfs
     nfs_record_root: /tmp/areal/name_resolve
 seed: 1
-total_train_epochs: 1
+total_train_epochs: 2
 tokenizer_path: ${actor.path}
 async_training: true
 
 # datasets
 train_dataset:
-  batch_size: 8
+  batch_size: 4
   shuffle: true
   pin_memory: true
   num_workers: 4
@@ -24,7 +24,7 @@ train_dataset:
   max_length: 4096
 
 valid_dataset:
-  batch_size: 8
+  batch_size: 4
   shuffle: true
   pin_memory: true
   num_workers: 4
@@ -44,13 +44,13 @@ rollout:
 actor:
   experiment_name: ${experiment_name}
   trial_name: ${trial_name}
-  path: Qwen/Qwen2.5-7B-Instruct
+  path: Qwen/Qwen2.5-1.5B-Instruct
   init_from_scratch: false
   disable_dropout: true
   gradient_checkpointing: false
   dtype: bfloat16
   mb_spec:
-    max_tokens_per_gpu: 10240
+    max_tokens_per_gpu: 11000
   optimizer:
     type: adam
     lr: 1.70e-5
@@ -83,7 +83,7 @@ ref:
   disable_dropout: true
   dtype: ${actor.dtype}
   mb_spec:
-    max_tokens_per_gpu: 10240
+    max_tokens_per_gpu: 11000
   optimizer: null
   backend: fsdp
 

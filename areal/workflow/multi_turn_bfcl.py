@@ -203,9 +203,11 @@ class MultiTurnWorkflow(RolloutWorkflow):
 
                 # Amend results
                 input_len = len(resp.input_tokens) - len(seq)  # 新增加的输入token数量（当前响应相比之前新增的部分）
-                assert len(seq) == 0 or resp.input_tokens[:-input_len] == seq, (
-                    seq,
-                    resp.input_tokens[:-input_len],
+                seq_decode = self.tokenizer.decode(seq)
+                input_decode = self.tokenizer.decode(resp.input_tokens[:-input_len])
+                assert len(seq) == 0 or len(resp.input_tokens[:-input_len]) == len(seq), (
+                    seq_decode,
+                    input_decode,
                     len(seq),
                     len(resp.input_tokens[:-input_len]),
                 )
