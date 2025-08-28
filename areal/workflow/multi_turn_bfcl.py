@@ -317,6 +317,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
             )
 
         reward = float(raw_reward * discount)
+        
         logger.info(f"!!!! finish reward caculate test_entry_id: {test_entry_id}\tturn_idx:{turn_idx}\traw_reward: {raw_reward}\treward: {reward}\ttotal_step: {all_count}")
         stats_tracker.get(self.rollout_stat_scope).scalar(reward=reward, num_turns=turn_idx, num_steps=all_count)
 
