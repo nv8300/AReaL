@@ -196,9 +196,12 @@ class GorillaFileSystem:
         self.root = DEFAULT_STATE_COPY["root"]
         if "root" in scenario:
             root_dir = Directory(list(scenario["root"].keys())[0], None)
-            self.root = self._load_directory(
-                scenario["root"][list(scenario["root"].keys())[0]]["contents"], root_dir
-            )
+            try:
+                self.root = self._load_directory(
+                    scenario["root"][list(scenario["root"].keys())[0]]["contents"], root_dir
+                )
+            except (TypeError, KeyError, IndexError) as e:
+                print("self._load_directory fail")
         self._current_dir = self.root
 
     def _load_directory(
