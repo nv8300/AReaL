@@ -13,7 +13,7 @@ MULTI_TURN_FUNC_DOC_FILE_MAPPING = {
     "MemoryAPI_rec_sum": "memory_rec_sum.json",
 }
 
-BACKEND_PATH_PREFIX = "bfcl_eval.eval_checker.multi_turn_eval.func_source_code"
+BACKEND_PATH_PREFIX = "areal.bfcl.multi_turn_eval.func_source_code"
 
 CLASS_FILE_PATH_MAPPING = {
     "GorillaFileSystem": f"{BACKEND_PATH_PREFIX}.gorilla_file_system",

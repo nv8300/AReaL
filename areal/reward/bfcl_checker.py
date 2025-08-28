@@ -11,7 +11,7 @@ def multi_turn_checker(
     test_entry: dict,
     test_category: str,
     model_name: str,
-) -> dict:
+) -> int:
     """
     The main function that checks the correctness of the model's function call execution.
     """
@@ -27,6 +27,8 @@ def multi_turn_checker(
     for turn_index, single_turn_ground_truth_list in enumerate(
         multi_turn_ground_truth_list
     ):
+        if turn_index >= len(multi_turn_model_result_list_decoded):
+           return 0 
         single_turn_model_response_list = multi_turn_model_result_list_decoded[turn_index]
 
         # Note that we combine all the sub-step results into a single list, for easier comparison

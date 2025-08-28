@@ -16,13 +16,13 @@ from areal.bfcl.constants.enums import ReturnFormat
 
 CLASS_FILE_PATH_MAPPING = {
     "GorillaFileSystem": "areal.bfcl.multi_turn_eval.func_source_code.gorilla_file_system",
-    "MathAPI": "areal.bfcl.eval_checker.multi_turn_eval.func_source_code.math_api",
-    "MessageAPI": "areal.bfcl.eval_checker.multi_turn_eval.func_source_code.message_api",
-    "TwitterAPI": "areal.bfcl.eval_checker.multi_turn_eval.func_source_code.posting_api",
-    "TicketAPI": "areal.bfcl.eval_checker.multi_turn_eval.func_source_code.ticket_api",
-    "TradingBot": "areal.bfcl.eval_checker.multi_turn_eval.func_source_code.trading_bot",
-    "TravelAPI": "areal.bfcl.eval_checker.multi_turn_eval.func_source_code.travel_booking",
-    "VehicleControlAPI": "areal.bfcl.eval_checker.multi_turn_eval.func_source_code.vehicle_control",
+    "MathAPI": "areal.bfcl.multi_turn_eval.func_source_code.math_api",
+    "MessageAPI": "areal.bfcl.multi_turn_eval.func_source_code.message_api",
+    "TwitterAPI": "areal.bfcl.multi_turn_eval.func_source_code.posting_api",
+    "TicketAPI": "areal.bfcl.multi_turn_eval.func_source_code.ticket_api",
+    "TradingBot": "areal.bfcl.multi_turn_eval.func_source_code.trading_bot",
+    "TravelAPI": "areal.bfcl.multi_turn_eval.func_source_code.travel_booking",
+    "VehicleControlAPI": "areal.bfcl.multi_turn_eval.func_source_code.vehicle_control",
 }
 
 # These classes are stateless and do not require any initial configuration
@@ -112,7 +112,7 @@ def execute_multi_turn_func_call(
     execution_results = []
     for func_call in func_call_list:
         # Add the instance name to the method calls
-        func_call = _process_method_calls(func_call, class_method_name_mapping)
+        func_call = process_method_calls(func_call, class_method_name_mapping)
 
         # Evaluate the function call
         try:
