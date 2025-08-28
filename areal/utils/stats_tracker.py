@@ -90,7 +90,13 @@ class DistributedStatsTracker:
             for key, value in kwargs.items():
                 full_key = self._get_full_key(key)
                 self._set_reduce_type(full_key, ReduceType.SCALAR)
-                self.stats[full_key].append(float(value))
+                if full_key not in self.stats:
+                    continue
+                try:
+                    self.stats[full_key].append(float(value))
+                except (ValueError, TypeError):
+                    default_value = 0.0
+                    self.stats[full_key].append(default_value)
 
     def stat(
         self,

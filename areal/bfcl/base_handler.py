@@ -2,7 +2,9 @@ import re
 import json
 
 from areal.bfcl.constants.default_prompts import DEFAULT_SYSTEM_PROMPT_FORMAT, PROMPT_TEMPLATE_MAPPING, PROMPT_STYLE_TEMPLATES, OUTPUT_FORMAT_MAPPING, PARAM_TYPE_MAPPING
+from areal.utils import logging
 
+logger = logging.getLogger(__name__)
 
 def pre_query_processing_prompting(test_entry: dict) -> dict:
     functions: list = test_entry["function"]
@@ -33,7 +35,8 @@ def system_prompt_pre_processing_chat_model(
     # System prompt must be in the first position
     # If the question comes with a system prompt, append its content at the end of the chat template.
     if prompts[0]["role"] == "system":
-        prompts[0]["content"] = system_prompt + "\n\n" + prompts[0]["content"]
+        logger.info(f"system_prompt_pre_processing_chat_model: {test_entry_id}")
+        #prompts[0]["content"] = system_prompt + "\n\n" + prompts[0]["content"]
     # Otherwise, use the system prompt template to create a new system prompt.
     else:
         prompts.insert(
