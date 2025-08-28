@@ -20,9 +20,17 @@ from areal.utils.recover import RecoverHandler
 from areal.utils.saver import Saver
 from areal.utils.stats_logger import StatsLogger
 from areal.workflow.multi_turn_bfcl import MultiTurnWorkflow
+from areal.utils import logging
 
 
-def bfcl_reward_fn(multi_turn_model_result_list_decoded: list[list[list[str]]], multi_turn_ground_truth_list: list[list[str]], test_entry: dict, test_category="multi_turn", model_name="qwen") -> int:
+#os.environ["NCCL_DEBUG"] = "TRACE"  # 或 "TRACE"（更详细）
+#os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
+os.environ["NCCL_P2P_LEVEL"] = "NVL"  # H800 支持 NVLink，强制使用 NVLink 通信（减少 PCIe 冲突）
+
+logger = logging.getLogger(__name__)
+
+
+def bfcl_reward_fn(multi_turn_model_result_list_decoded: list[list[list[str]]], multi_turn_ground_truth_list: list[list[str]], test_entry: dict, test_category="multi_turn_base", model_name="qwen") -> int:
     from areal.reward.bfcl_checker import multi_turn_checker
 
     return int(multi_turn_checker(multi_turn_model_result_list_decoded, multi_turn_ground_truth_list, test_entry, test_category, model_name))
@@ -37,6 +45,8 @@ def main(args):
     tokenizer = load_hf_tokenizer(config.tokenizer_path)
 
     seeding.set_random_seed(config.seed, key=f"trainer{rank}")
+
+    logger.info("finish tokenizer")
 
 
     train_dataset = get_custom_dataset(
@@ -55,6 +65,8 @@ def main(args):
         type=config.valid_dataset.type,
         tokenizer=tokenizer,
     )
+
+    logger.info("finish get_custom_dataset")
 
     # Create dataset and dataloaders
     train_dataloader = StatefulDataLoader(
@@ -79,6 +91,8 @@ def main(args):
         train_batch_size=config.train_dataset.batch_size,
     )
 
+    logger.info("finish StatefulDataLoader")
+
     # Initialize inference engine
     rollout = RemoteSGLangEngine(config.rollout)
     rollout.initialize(None, ft_spec)
@@ -86,6 +100,8 @@ def main(args):
     # NOTE: eval does not have any offpolicyness control
     eval_rollout.config.max_head_offpolicyness = int(1e12)
     eval_rollout.initialize(None, ft_spec)
+
+    logger.info("finish rollout")
 
     # Initialize train engine
     actor = FSDPPPOActor(config=config.actor)
@@ -95,17 +111,32 @@ def main(args):
         ref = FSDPPPOActor(config=config.ref)
         ref.initialize(None, ft_spec)
 
+    logger.info("finish actor init")
+    rank = dist.get_rank()
+
     # NOTE: Weight update meta only requires address and free port of rank 0,
     # but `WeightUpdateMeta.from_fsdp_nccl` has to be executed on all ranks
     # due to `engine.get_param_specs()`.
     # Therefore, we create weight update meta on all ranks, then broadcast the one on rank 0.
-    weight_update_meta = [
-        WeightUpdateMeta.from_fsdp_nccl(
-            AllocationMode.from_str(config.allocation_mode), actor
-        )
-    ]
+    event = torch.cuda.Event(enable_timing=True, blocking=True)  # blocking=True 确保事件完成后才触发
+    event.record()
+    weight_update_meta = [WeightUpdateMeta.from_fsdp_nccl(AllocationMode.from_str(config.allocation_mode), actor)]
+    logger.info(f"Rank {rank}: finish weight_update_meta")
+    event.wait()
+    logger.info(f"Rank {rank}: FSDP internal CUDA ops finished (via event)")
+
+    key_stream = torch.cuda.current_stream()
+    key_stream.synchronize()
+    #torch.cuda.synchronize()
+    logger.info(f"Rank {rank}: All CUDA ops synced before broadcast")
+
+    #dist.barrier()
+    #logger.info(f"Rank {rank}: Passed barrier before broadcast")
     dist.broadcast_object_list(weight_update_meta, src=0)
+    logger.info(f"Rank {rank}: After broadcast")
     weight_update_meta = weight_update_meta[0]
+
+    logger.info("finish weight_update_meta")
 
     # Create rollout workflow
     if tokenizer.pad_token_id not in config.gconfig.stop_token_ids:
@@ -123,6 +154,8 @@ def main(args):
             StatsLogger.get_log_path(config.stats_logger), "generated"
         ),
     )
+    logger.info("finish workflow init")
+
     eval_workflow = MultiTurnWorkflow(
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig.new(temperature=0.6),
@@ -136,10 +169,14 @@ def main(args):
         ),
     )
 
+    logger.info("finish eval_workflow init")
+
     # Run training.
     saver = Saver(config.saver, ft_spec)
     stats_logger = StatsLogger(config.stats_logger, ft_spec)
     evaluator = Evaluator(config.evaluator, ft_spec)
+
+    logger.info("finish evaluator init")
 
     recover_handler = RecoverHandler(config.recover, ft_spec)
     recover_info = recover_handler.load(
@@ -151,17 +188,22 @@ def main(args):
         inference_engine=rollout,
         weight_update_meta=weight_update_meta,
     )
+
+    logger.info("finish recover init")
+
     start_step = (
         recover_info.last_step_info.next().global_step
         if recover_info is not None
         else 0
     )
+    logger.info("finish start_step")
 
     total_epochs = config.total_train_epochs
     steps_per_epoch = len(train_dataloader)
     max_steps = total_epochs * steps_per_epoch
 
     data_generator = itertools.cycle(train_dataloader)
+    logger.info("start StepInfo")
     for global_step in range(start_step, max_steps):
         epoch = global_step // steps_per_epoch
         step = global_step % steps_per_epoch
@@ -171,17 +213,23 @@ def main(args):
             epoch_step=step,
             steps_per_epoch=steps_per_epoch,
         )
+        logger.info(f"get step_info: {step_info}")
 
         with stats_tracker.record_timing("rollout"):
+            logger.info(f"start step_info: {step_info} rollout")
             if config.async_training:
                 batch = rollout.prepare_batch(train_dataloader, workflow=workflow)
             else:
                 batch = rollout.rollout_batch(next(data_generator), workflow=workflow)
 
+        logger.info(f"finish step_info: {step_info} rollout")
+
         batch = batch.to(actor.device)
         # Create barrier to synchronize all rollout processes.
         dist.barrier(device_ids=[actor.device.index])
         torch.cuda.synchronize()
+
+        logger.info("finish synchronize")
 
         if config.actor.recompute_logprob or config.actor.use_decoupled_loss:
             with stats_tracker.record_timing("recompute_logp"):
@@ -189,15 +237,18 @@ def main(args):
                 batch["prox_logp"] = logp
                 log_gpu_stats("recompute logp")
 
+        logger.info("finish recompute logp log")
         if ref is not None:
             with stats_tracker.record_timing("ref_logp"):
                 batch["ref_logp"] = ref.compute_logp(batch)
                 log_gpu_stats("ref logp")
 
+        logger.info("finish ref log")
         with stats_tracker.record_timing("compute_advantage"):
             actor.compute_advantages(batch)
             log_gpu_stats("compute advantages")
-
+        
+        logger.info("finish compute advantages log")
         with (
             stats_tracker.record_timing("train_step"),
             stats_tracker.scope("grpo_actor"),
@@ -205,6 +256,7 @@ def main(args):
             stats = actor.ppo_update(batch)
             actor.step_lr_scheduler()
             log_gpu_stats("ppo update")
+        logger.info("finish ppo_update")
 
         # pause inference for updating weights, save, and evaluation
         rollout.pause()
@@ -221,10 +273,12 @@ def main(args):
             actor.set_version(global_step + 1)
             rollout.set_version(global_step + 1)
             eval_rollout.set_version(global_step + 1)
+        logger.info("finish update_weights")
 
         with stats_tracker.record_timing("save"):
             saver.save(actor, epoch, step, global_step, tokenizer=tokenizer)
-
+        logger.info("finish save")
+        
         with stats_tracker.record_timing("eval"):
 
             def evaluate_fn():
@@ -243,6 +297,7 @@ def main(args):
                 step,
                 global_step,
             )
+        logger.info("finish evaluate")
 
         with stats_tracker.record_timing("checkpoint_for_recover"):
             recover_handler.dump(
@@ -254,6 +309,7 @@ def main(args):
                 train_dataloader,
                 tokenizer=tokenizer,
             )
+        logger.info("finish checkpoint_for_recover")
 
         dist.barrier(device_ids=[actor.device.index])
         torch.cuda.synchronize()
@@ -262,11 +318,15 @@ def main(args):
         stats[0].update(stats_tracker.export_all(reduce_group=actor.parallelism_group))
         stats_logger.commit(epoch, step, global_step, stats)
 
+        logger.info("finish stats_logger commit")
+
+
         dist.barrier(device_ids=[actor.device.index])
         torch.cuda.synchronize()
 
         # Resume rollout
         rollout.resume()
+        logger.info("finish rollout all")
 
     stats_logger.close()
     eval_rollout.destroy()
@@ -278,3 +338,4 @@ def main(args):
 
 if __name__ == "__main__":
     main(sys.argv[1:])
+
