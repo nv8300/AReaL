@@ -45,7 +45,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
         model_name: str = "qwen",
         rollout_stat_scope: str = "rollout",
         dump_dir: str | None = None,
-        test_category: str = "multi_turn",
+        test_category: str = "multi_turn_base",
     ):
         self.reward_fn = reward_fn
         self.gconfig = gconfig
@@ -63,6 +63,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
         self.model_name = model_name
         self.possible_answer_dict = load_ground_truth_entry(test_category)
         self.test_category = test_category
+        logger.info("finish MultiTurnWorkflow init")
 
         # Create tokens that should be amended if the answer is incorrect.
         # This method eliminates the encode-decode inconsistency issue and cancels system prompts.
@@ -81,6 +82,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
         # self.multi_turn_prompt_ids = s2[len(s1) :]
 
     async def _run_one_episode(self, engine: InferenceEngine, test_entry, rid):
+        logger.info("!!! start _run_one_episode")
         # Enforces `n_samples=1`
         # Placeholders for the results
         seq, logprobs, loss_mask, versions = [], [], [], []
@@ -94,6 +96,8 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 self.test_category,
             )
 
+        logger.info(f"finish test_entry get: {test_entry_id}")
+
         total_input_token_count: list[list[float]] = []
         total_output_token_count: list[list[float]] = []
         total_model_result_list_decoded: list[list[float]] = []
@@ -104,15 +108,18 @@ class MultiTurnWorkflow(RolloutWorkflow):
         all_inference_log: list[list[dict]] = []
         force_quit = False  # Whether the model has been forced to quit. If True, this whole entry will be failed.
 
+        logger.info("finish total list init")
+
 
         inference_data: dict = pre_query_processing_prompting(test_entry)
         all_multi_turn_messages: list[list[dict]] = test_entry["question"]
-        
+        logger.info("finish pre_query_processing_prompting")
 
         # Multi-Turn multi-step call: calculate reward for a multi-turn case, discount accumulate within a turn
         all_count = 0
         discount = 1
         for turn_idx, current_turn_message in enumerate(all_multi_turn_messages):
+            logger.info(f"!!! start turn_name: {test_entry_id}\t turn_idx: {turn_idx}")
             current_turn_message: list[dict]
             if turn_idx == 0:
                 inference_data = add_first_turn_message_prompting(
@@ -122,6 +129,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 inference_data = add_next_turn_user_message_prompting(
                     inference_data, current_turn_message
                 )
+            logger.info(f"!!! turn_name: {test_entry_id}\t turn_idx: {turn_idx}, finish add_turn_user_message_prompting")
 
             current_turn_response = []
             current_turn_inference_log: list[dict] = {
@@ -134,6 +142,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
             count = 0
 
             while True:
+                logger.info(f"!!! start step turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                 print("-" * 100)
                 print(
                     f"ID: {test_entry_id.replace('multi_turn_', '')}, Turn: {turn_idx}, Step: {count}"
@@ -143,6 +152,8 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 current_turn_inference_log[f"step_{count}"] = current_step_inference_log
 
                 formatted_prompt = query_prompting(inference_data)
+                #logger.info(f"!!! formatted_prompt for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}\n formatted_prompt: {formatted_prompt}\n")
+                logger.info(f"!!! formatted_prompt for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}\n formatted_prompt: {formatted_prompt}\n")
                 input_ids = self.tokenizer.encode(formatted_prompt)
 
                 start_time = time.time()
@@ -155,10 +166,12 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 resp = await engine.agenerate(req)
                 end_time = time.time()
                 query_latency = end_time - start_time
+                logger.info(f"!!! get req for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
 
 
                 prompt_str = self.tokenizer.decode(input_ids)
                 model_responses = self.tokenizer.decode(resp.output_tokens)
+                logger.info(f"!!! get model_responses for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}\n  model_responses: {model_responses}\n")
 
                 model_response_data = {
                     "model_responses": model_responses,
@@ -171,6 +184,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 inference_data = add_assistant_message_prompting(
                     inference_data, model_response_data
                 )
+                logger.info(f"add_assistant_message_prompting for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                 # Process the metadata
                 current_turn_input_token_count.append(input_ids)
                 current_turn_output_token_count.append(resp.output_tokens)
@@ -181,6 +195,8 @@ class MultiTurnWorkflow(RolloutWorkflow):
                     "content": model_responses,
                 }
                 current_step_inference_log.append(log_entry)
+
+                logger.info(f"current_step_inference_log for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
 
                 # Amend results
                 input_len = len(resp.input_tokens) - len(seq)  # 新增加的输入token数量（当前响应相比之前新增的部分）
@@ -195,10 +211,12 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 loss_mask += [0] * input_len + [1] * resp.output_len
                 versions += [-1] * input_len + resp.output_versions
                 discount *= self.turn_discount
+                logger.info(f"!!!seq, logprobs, versions, discount process: {discount}  for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
 
                 # Try decoding the model response
                 try:
                     decoded_model_responses = default_decode_execute_prompting(model_responses, has_tool_call_tag=False)
+                    logger.info(f"decoded_model_responses for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                     current_turn_model_result_list_decoded.append(decoded_model_responses)
                     current_step_inference_log.append(
                         {
@@ -210,6 +228,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                     model_response_data["model_responses_decoded"] = decoded_model_responses
 
                     if is_empty_execute_response(decoded_model_responses):
+                        logger.info(f"is_empty_execute_response TRUE for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                         print("Empty response from the model. Proceed to next turn.")
                         current_step_inference_log.append(
                             {
@@ -231,6 +250,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                     break
                 
                 # Obtain the execution results
+                logger.info(f"!!! start execute_multi_turn_func_call for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                 execution_results, involved_instances = execute_multi_turn_func_call(
                     decoded_model_responses,
                     initial_config,
@@ -242,11 +262,13 @@ class MultiTurnWorkflow(RolloutWorkflow):
                     ),
                     is_evaL_run=False,
                 )
+                logger.info(f"!!! finish execute_multi_turn_func_call for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
 
                 # Add the execution results to the chat history for the next turn
                 inference_data = add_execution_results_prompting(
                     inference_data, execution_results, model_response_data
                 )
+                logger.info(f"add_execution_results_prompting for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
 
                 for execution_result in execution_results:
                     current_step_inference_log.append(
@@ -259,6 +281,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                                     
                 count += 1
                 # Force quit after too many steps
+                logger.info(f"finish for this step turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                 if count > self.max_steps:
                     force_quit = True
                     current_step_inference_log.append(
@@ -267,6 +290,7 @@ class MultiTurnWorkflow(RolloutWorkflow):
                             "content": f"Model has been forced to quit after {MAXIMUM_STEP_LIMIT} steps.",
                         }
                     )
+                    logger.info(f"count > self.max_steps: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                     break
                 
             all_count += count
@@ -277,12 +301,14 @@ class MultiTurnWorkflow(RolloutWorkflow):
             total_output_token_count.append(current_turn_output_token_count)
             total_model_result_list_decoded.append(current_turn_model_result_list_decoded)
             total_latency.append(current_turn_latency)
+            logger.info(f"finish for this turn turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t all_step: {all_count}")
 
             if force_quit:
                 break
 
+        logger.info(f"multi_turn_ground_truth_list, test_entry_id: {test_entry_id}")
         multi_turn_ground_truth_list = self.possible_answer_dict[test_entry_id]["ground_truth"]
-        reward = await self.async_reward_fn(
+        raw_reward = await self.async_reward_fn(
                 total_model_result_list_decoded,
                 multi_turn_ground_truth_list, 
                 test_entry, 
@@ -290,7 +316,8 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 self.model_name 
             )
 
-        reward = float(reward * discount)
+        reward = float(raw_reward * discount)
+        logger.info(f"!!!! finish reward caculate test_entry_id: {test_entry_id}\tturn_idx:{turn_idx}\traw_reward: {raw_reward}\treward: {reward}\ttotal_step: {all_count}")
         stats_tracker.get(self.rollout_stat_scope).scalar(reward=reward, num_turns=turn_idx, num_steps=all_count)
 
         res = dict(
@@ -298,10 +325,11 @@ class MultiTurnWorkflow(RolloutWorkflow):
             logprobs=torch.tensor(logprobs),
             loss_mask=torch.tensor(loss_mask),
             versions=torch.tensor(versions),
-            rewards=torch.tensor(float(reward * discount)), # TODO：好像不用再乘以discount了吧
+            rewards=torch.tensor(float(reward)),
             attention_mask=torch.ones(len(seq), dtype=torch.bool),
         )
         res = {k: v.unsqueeze(0) for k, v in res.items()}
+        logger.info(f"!!!! before return test_entry_id: {test_entry_id}")
         return (
             TensorDict(res, batch_size=[1]),
             formatted_prompt,
@@ -312,12 +340,14 @@ class MultiTurnWorkflow(RolloutWorkflow):
         
 
     async def arun_episode(self, engine: InferenceEngine, data):
+        logger.info("*** start arun_episode")
         rid = uuid.uuid4().hex
         tasks = [
             self._run_one_episode(engine, data, rid)
             for _ in range(self.gconfig.n_samples)
         ]
         results = await asyncio.gather(*tasks)
+        logger.info("*** get results in arun_episode")
 
         if self.dump_dir is not None:
             version = engine.get_version()
@@ -345,7 +375,9 @@ class MultiTurnWorkflow(RolloutWorkflow):
                     )
                     await f.write(info + "\n")
 
+        logger.info("finish Dump rollout to file in arun_episode")
         data = [res[0] for res in results]
+        logger.info("before return in arun_episode")
         return concat_padded_tensors(data)
 
 
