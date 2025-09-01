@@ -264,13 +264,22 @@ def main(args):
         rollout.pause()
 
         with stats_tracker.record_timing("update_weights"):
+            logger.info("start update_weights")
             if dist.get_rank() == 0:
                 future = rollout.update_weights(weight_update_meta)
+            dist.barrier()
             actor.upload_weights(weight_update_meta)
             if dist.get_rank() == 0:
-                future.result()
+                try:
+                    future.result(timeout=300)
+                except TimeoutError as e:
+                    logger.info(f"Rank 0: future.result() timed out after 300s: {e}")
+                    dist.destroy_process_group()
+            logger.info("mid update_weights")
             dist.barrier(device_ids=[actor.device.index])
+            logger.info("dist.barrier update_weights")
             torch.cuda.synchronize()
+            logger.info("finish synchronize() update_weights")
 
             actor.set_version(global_step + 1)
             rollout.set_version(global_step + 1)
