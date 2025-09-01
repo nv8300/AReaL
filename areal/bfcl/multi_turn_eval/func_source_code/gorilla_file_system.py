@@ -201,6 +201,7 @@ class GorillaFileSystem:
                     scenario["root"][list(scenario["root"].keys())[0]]["contents"], root_dir
                 )
             except (TypeError, KeyError, IndexError) as e:
+                self.root = None
                 print("self._load_directory fail")
         self._current_dir = self.root
 

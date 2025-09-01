@@ -23,7 +23,7 @@ from areal.workflow.rlvr import RLVRWorkflow
 from areal.utils import logging
 
 logger = logging.getLogger(__name__)
-os.environ["NCCL_P2P_LEVEL"] = "NVL" 
+#os.environ["NCCL_P2P_LEVEL"] = "NVL" 
 
 def gsm8k_reward_fn(prompt, completions, prompt_ids, completion_ids, answer, **kwargs):
     from areal.reward.math_parser import process_results
@@ -113,14 +113,22 @@ def main(args):
     # but `WeightUpdateMeta.from_fsdp_nccl` has to be executed on all ranks
     # due to `engine.get_param_specs()`.
     # Therefore, we create weight update meta on all ranks, then broadcast the one on rank 0.
+    #weight_update_meta = [
+    #    WeightUpdateMeta.from_fsdp_nccl(
+    #        AllocationMode.from_str(config.allocation_mode), actor
+    #    )
+    #]
     weight_update_meta = [
-        WeightUpdateMeta.from_fsdp_nccl(
-            AllocationMode.from_str(config.allocation_mode), actor
+        WeightUpdateMeta.from_disk(
+            AllocationMode.from_str(config.allocation_mode),
+            config.experiment_name,
+            config.trial_name,
+            config.cluster.fileroot
         )
     ]
     logger.info("finish weight_update_meta")
-    dist.broadcast_object_list(weight_update_meta, src=0)
-    logger.info("finish broadcast_object_list")
+    #dist.broadcast_object_list(weight_update_meta, src=0)
+    #logger.info("finish broadcast_object_list")
 
     weight_update_meta = weight_update_meta[0]
 

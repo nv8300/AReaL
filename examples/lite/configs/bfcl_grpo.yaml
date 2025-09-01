@@ -2,12 +2,12 @@ experiment_name: bfcl-grpo
 trial_name: trial0
 allocation_mode: sglang.d4p1t1+d4p1t1
 cluster:
-  fileroot: /tmp/areal/experiments
+  fileroot: /root/autodl-tmp/tmp/areal/experiments
   n_nodes: 1
   n_gpus_per_node: 8
   name_resolve:
     type: nfs
-    nfs_record_root: /tmp/areal/name_resolve
+    nfs_record_root: /root/autodl-tmp/tmp/areal/name_resolve
 seed: 1
 total_train_epochs: 2
 tokenizer_path: ${actor.path}
@@ -34,7 +34,7 @@ valid_dataset:
 rollout:
   experiment_name: ${experiment_name}
   trial_name: ${trial_name}
-  max_concurrent_rollouts: 8
+  max_concurrent_rollouts: 4
   queue_size: null
   consumer_batch_size: ${train_dataset.batch_size}
   max_head_offpolicyness: 2
@@ -50,7 +50,7 @@ actor:
   gradient_checkpointing: false
   dtype: bfloat16
   mb_spec:
-    max_tokens_per_gpu: 11000
+    max_tokens_per_gpu: 12000
   optimizer:
     type: adam
     lr: 1.70e-5
@@ -83,14 +83,14 @@ ref:
   disable_dropout: true
   dtype: ${actor.dtype}
   mb_spec:
-    max_tokens_per_gpu: 11000
+    max_tokens_per_gpu: 12000
   optimizer: null
   backend: fsdp
 
 gconfig:
   n_samples: 4
   min_new_tokens: 0
-  max_new_tokens: 1024
+  max_new_tokens: 512
   greedy: false
   temperature: 1.0
 
