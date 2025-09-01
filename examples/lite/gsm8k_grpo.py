@@ -20,7 +20,10 @@ from areal.utils.recover import RecoverHandler
 from areal.utils.saver import Saver
 from areal.utils.stats_logger import StatsLogger
 from areal.workflow.rlvr import RLVRWorkflow
+from areal.utils import logging
 
+logger = logging.getLogger(__name__)
+os.environ["NCCL_P2P_LEVEL"] = "NVL" 
 
 def gsm8k_reward_fn(prompt, completions, prompt_ids, completion_ids, answer, **kwargs):
     from areal.reward.math_parser import process_results
@@ -35,6 +38,8 @@ def main(args):
     rank = int(os.getenv("RANK"))
     world_size = int(os.getenv("WORLD_SIZE"))
     tokenizer = load_hf_tokenizer(config.tokenizer_path)
+
+    logger.info("finish tokenizer")
 
     seeding.set_random_seed(config.seed, key=f"trainer{rank}")
 
@@ -54,6 +59,8 @@ def main(args):
         type=config.valid_dataset.type,
         tokenizer=tokenizer,
     )
+
+    logger.info("finish get_custom_dataset")
 
     # Create dataset and dataloaders
     train_dataloader = StatefulDataLoader(
@@ -78,6 +85,8 @@ def main(args):
         train_batch_size=config.train_dataset.batch_size,
     )
 
+    logger.info("finish StatefulDataLoader")
+
     # Initialize inference engine
     rollout = RemoteSGLangEngine(config.rollout)
     rollout.initialize(None, ft_spec)
@@ -86,6 +95,9 @@ def main(args):
     eval_rollout.config.max_head_offpolicyness = int(1e12)
     eval_rollout.initialize(None, ft_spec)
 
+
+    logger.info("finish rollout")
+
     # Initialize train engine
     actor = FSDPPPOActor(config=config.actor)
     actor.initialize(None, ft_spec)
@@ -93,6 +105,9 @@ def main(args):
     if config.actor.kl_ctl > 0 and config.ref is not None:
         ref = FSDPPPOActor(config=config.ref)
         ref.initialize(None, ft_spec)
+
+
+    logger.info("finish actor init")
 
     # NOTE: Weight update meta only requires address and free port of rank 0,
     # but `WeightUpdateMeta.from_fsdp_nccl` has to be executed on all ranks
@@ -103,8 +118,13 @@ def main(args):
             AllocationMode.from_str(config.allocation_mode), actor
         )
     ]
+    logger.info("finish weight_update_meta")
     dist.broadcast_object_list(weight_update_meta, src=0)
+    logger.info("finish broadcast_object_list")
+
     weight_update_meta = weight_update_meta[0]
+
+    logger.info("finish weight_update_meta")
 
     # Create rollout workflow
     if tokenizer.pad_token_id not in config.gconfig.stop_token_ids:
@@ -131,10 +151,14 @@ def main(args):
         ),
     )
 
+    logger.info("finish eval_workflow init")
+
     # Run training.
     saver = Saver(config.saver, ft_spec)
     stats_logger = StatsLogger(config.stats_logger, ft_spec)
     evaluator = Evaluator(config.evaluator, ft_spec)
+
+    logger.info("finish evaluator init")
 
     recover_handler = RecoverHandler(config.recover, ft_spec)
     recover_info = recover_handler.load(
@@ -146,16 +170,22 @@ def main(args):
         inference_engine=rollout,
         weight_update_meta=weight_update_meta,
     )
+
+    logger.info("finish recover init")
+
     start_step = (
         recover_info.last_step_info.next().global_step
         if recover_info is not None
         else 0
     )
 
+
+
     total_epochs = config.total_train_epochs
     steps_per_epoch = len(train_dataloader)
     max_steps = total_epochs * steps_per_epoch
-
+    
+    logger.info("start StepInfo")
     data_generator = itertools.cycle(train_dataloader)
     for global_step in range(start_step, max_steps):
         epoch = global_step // steps_per_epoch
@@ -167,6 +197,8 @@ def main(args):
             steps_per_epoch=steps_per_epoch,
         )
 
+        logger.info(f"get step_info: {step_info}")
+
         with stats_tracker.record_timing("rollout"):
             if config.async_training:
                 batch = rollout.prepare_batch(train_dataloader, workflow=workflow)
@@ -174,9 +206,14 @@ def main(args):
                 batch = rollout.rollout_batch(next(data_generator), workflow=workflow)
 
         batch = batch.to(actor.device)
+
+        logger.info(f"finish step_info: {step_info} rollout")
+
         # Create barrier to synchronize all rollout processes.
         dist.barrier(device_ids=[actor.device.index])
+        logger.info("finish dist.barrier")
         torch.cuda.synchronize()
+        logger.info("finish synchronize")
 
         if config.actor.recompute_logprob or config.actor.use_decoupled_loss:
             with stats_tracker.record_timing("recompute_logp"):
@@ -184,14 +221,20 @@ def main(args):
                 batch["prox_logp"] = logp
                 log_gpu_stats("recompute logp")
 
+        logger.info("finish recompute logp log")
+
         if ref is not None:
             with stats_tracker.record_timing("ref_logp"):
                 batch["ref_logp"] = ref.compute_logp(batch)
                 log_gpu_stats("ref logp")
 
+        logger.info("finish ref log")
+
         with stats_tracker.record_timing("compute_advantage"):
             actor.compute_advantages(batch)
             log_gpu_stats("compute advantages")
+
+        logger.info("finish compute advantages log")
 
         with (
             stats_tracker.record_timing("train_step"),
@@ -201,24 +244,37 @@ def main(args):
             actor.step_lr_scheduler()
             log_gpu_stats("ppo update")
 
+        logger.info("finish ppo_update")
+
         # pause inference for updating weights, save, and evaluation
         rollout.pause()
+        logger.info("finish rollout.pause")
 
         with stats_tracker.record_timing("update_weights"):
+            logger.info("start update_weights")
             if dist.get_rank() == 0:
                 future = rollout.update_weights(weight_update_meta)
+            logger.info("finish rank 0 update_weights")
             actor.upload_weights(weight_update_meta)
+            logger.info("finish actor.upload_weights")
             if dist.get_rank() == 0:
                 future.result()
+            logger.info("start dist.barrier")
             dist.barrier(device_ids=[actor.device.index])
+            logger.info("finish dist.barrier")
             torch.cuda.synchronize()
+            logger.info("finish cuda.synchronize")
 
             actor.set_version(global_step + 1)
             rollout.set_version(global_step + 1)
             eval_rollout.set_version(global_step + 1)
 
+        logger.info("finish update_weights")
+
         with stats_tracker.record_timing("save"):
             saver.save(actor, epoch, step, global_step, tokenizer=tokenizer)
+
+        logger.info("finish save")
 
         with stats_tracker.record_timing("eval"):
 
@@ -239,6 +295,8 @@ def main(args):
                 global_step,
             )
 
+        logger.info("finish evaluate")
+
         with stats_tracker.record_timing("checkpoint_for_recover"):
             recover_handler.dump(
                 actor,
@@ -250,6 +308,8 @@ def main(args):
                 tokenizer=tokenizer,
             )
 
+        logger.info("finish checkpoint_for_recover")
+
         dist.barrier(device_ids=[actor.device.index])
         torch.cuda.synchronize()
 
@@ -257,11 +317,14 @@ def main(args):
         stats[0].update(stats_tracker.export_all(reduce_group=actor.parallelism_group))
         stats_logger.commit(epoch, step, global_step, stats)
 
+        logger.info("finish stats_logger commit")
+
         dist.barrier(device_ids=[actor.device.index])
         torch.cuda.synchronize()
 
         # Resume rollout
         rollout.resume()
+        logger.info("finish rollout all")
 
     stats_logger.close()
     eval_rollout.destroy()
