@@ -23,9 +23,9 @@ from areal.workflow.multi_turn_bfcl import MultiTurnWorkflow
 from areal.utils import logging
 
 
-os.environ["NCCL_DEBUG"] = "TRACE"  # 或 "TRACE"（更详细）
-os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
-os.environ["NCCL_P2P_LEVEL"] = "NVL"  # H800 支持 NVLink，强制使用 NVLink 通信（减少 PCIe 冲突）
+#os.environ["NCCL_DEBUG"] = "TRACE"  # 或 "TRACE"（更详细）
+#os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
+#os.environ["NCCL_P2P_LEVEL"] = "NVL"  # H800 支持 NVLink，强制使用 NVLink 通信（减少 PCIe 冲突）
 
 logger = logging.getLogger(__name__)
 
@@ -112,28 +112,19 @@ def main(args):
         ref.initialize(None, ft_spec)
 
     logger.info("finish actor init")
-    rank = dist.get_rank()
 
     # NOTE: Weight update meta only requires address and free port of rank 0,
     # but `WeightUpdateMeta.from_fsdp_nccl` has to be executed on all ranks
     # due to `engine.get_param_specs()`.
     # Therefore, we create weight update meta on all ranks, then broadcast the one on rank 0.
-    event = torch.cuda.Event(enable_timing=True, blocking=True)  # blocking=True 确保事件完成后才触发
-    event.record()
-    weight_update_meta = [WeightUpdateMeta.from_fsdp_nccl(AllocationMode.from_str(config.allocation_mode), actor)]
-    logger.info(f"Rank {rank}: finish weight_update_meta")
-    event.wait()
-    logger.info(f"Rank {rank}: FSDP internal CUDA ops finished (via event)")
+    weight_update_meta = [WeightUpdateMeta.from_disk(AllocationMode.from_str(config.allocation_mode), config.experiment_name, config.trial_name, config.cluster.fileroot)]
+    #weight_update_meta = [WeightUpdateMeta.from_fsdp_nccl(AllocationMode.from_str(config.allocation_mode), actor)]
 
-    key_stream = torch.cuda.current_stream()
-    key_stream.synchronize()
-    #torch.cuda.synchronize()
-    logger.info(f"Rank {rank}: All CUDA ops synced before broadcast")
 
     #dist.barrier()
     #logger.info(f"Rank {rank}: Passed barrier before broadcast")
-    dist.broadcast_object_list(weight_update_meta, src=0)
-    logger.info(f"Rank {rank}: After broadcast")
+    #dist.broadcast_object_list(weight_update_meta, src=0)
+    #logger.info(f"Rank {rank}: After broadcast")
     weight_update_meta = weight_update_meta[0]
 
     logger.info("finish weight_update_meta")
@@ -147,7 +138,7 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig,
         tokenizer=tokenizer,
-        max_steps=2,
+        max_steps=3,
         turn_discount=0.95,
         model_name="qwen",
         dump_dir=os.path.join(
@@ -160,7 +151,7 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig.new(temperature=0.6),
         tokenizer=tokenizer,
-        max_steps=2,
+        max_steps=3,
         turn_discount=0.95,
         model_name="qwen",
         rollout_stat_scope="eval-rollout",
