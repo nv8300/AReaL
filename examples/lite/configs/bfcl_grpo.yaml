@@ -9,7 +9,7 @@ cluster:
     type: nfs
     nfs_record_root: /root/autodl-tmp/tmp/areal/name_resolve
 seed: 1
-total_train_epochs: 2
+total_train_epochs: 20
 tokenizer_path: ${actor.path}
 async_training: true
 
@@ -100,7 +100,7 @@ saver:
   experiment_name: ${experiment_name}
   trial_name: ${trial_name}
   fileroot: ${cluster.fileroot}
-  freq_epochs: 1
+  freq_epochs: 10
   freq_steps: null
   freq_secs: null
 
