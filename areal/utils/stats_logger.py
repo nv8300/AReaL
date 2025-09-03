@@ -5,7 +5,7 @@ from typing import Dict, List
 
 import torch.distributed as dist
 import wandb
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 from areal.api.cli_args import StatsLoggerConfig
 from areal.api.io_struct import FinetuneSpec
@@ -72,7 +72,7 @@ class StatsLogger:
         if self.summary_writer is not None:
             self.summary_writer.close()
 
-    def commit(self, epoch: int, step: int, global_step: int, data: Dict | List[Dict]):
+    def commit(self, writer: SummaryWriter, epoch: int, step: int, global_step: int, data: Dict | List[Dict]):
         if dist.is_initialized() and dist.get_rank() != 0:
             return
         logger.info(
@@ -86,6 +86,8 @@ class StatsLogger:
         for i, item in enumerate(data):
             logger.info(f"Stats ({i+1}/{len(data)}):")
             self.print_stats(item)
+            for k,v in item:
+                writer.add_scalar(k, v, global_step + 1)
             wandb.log(item, step=log_step + i)
             if self.summary_writer is not None:
                 for key, val in item.items():
