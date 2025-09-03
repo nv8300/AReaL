@@ -40,11 +40,17 @@ class TicketAPI:
             scenario (Dict): A dictionary containing ticket data.
         """
         DEFAULT_STATE_COPY = deepcopy(DEFAULT_STATE)
-        self.ticket_queue = scenario.get("ticket_queue", DEFAULT_STATE_COPY["ticket_queue"])
-        self.ticket_counter = scenario.get(
-            "ticket_counter", DEFAULT_STATE_COPY["ticket_counter"]
-        )
-        self.current_user = scenario.get("current_user", DEFAULT_STATE_COPY["current_user"])
+        if scenario != None:
+            self.ticket_queue = scenario.get("ticket_queue", DEFAULT_STATE_COPY["ticket_queue"])
+            self.ticket_counter = scenario.get(
+                "ticket_counter", DEFAULT_STATE_COPY["ticket_counter"]
+            )
+            self.current_user = scenario.get("current_user", DEFAULT_STATE_COPY["current_user"])
+        else:
+            self.ticket_queue = DEFAULT_STATE_COPY["ticket_queue"]
+            self.ticket_counter = DEFAULT_STATE_COPY["ticket_counter"]
+            self.current_user = DEFAULT_STATE_COPY["current_user"]
+
 
     def create_ticket(
         self, title: str, description: str = "", priority: int = 1

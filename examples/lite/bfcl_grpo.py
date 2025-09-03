@@ -141,7 +141,7 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig,
         tokenizer=tokenizer,
-        max_steps=3,
+        max_steps=2,
         turn_discount=0.95,
         model_name="qwen",
         dump_dir=os.path.join(
@@ -154,7 +154,7 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig.new(temperature=0.6),
         tokenizer=tokenizer,
-        max_steps=3,
+        max_steps=2,
         turn_discount=0.95,
         model_name="qwen",
         rollout_stat_scope="eval-rollout",

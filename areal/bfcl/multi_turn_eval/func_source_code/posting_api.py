@@ -33,21 +33,32 @@ class TwitterAPI:
             scenario (dict): A dictionary containing Twitter data.
         """
         DEFAULT_STATE_COPY = deepcopy(DEFAULT_STATE)
-        self.username = scenario.get("username", DEFAULT_STATE_COPY["username"])
-        self.password = scenario.get("password", DEFAULT_STATE_COPY["password"])
-        self.authenticated = scenario.get(
-            "authenticated", DEFAULT_STATE_COPY["authenticated"]
-        )
-        self.tweets = scenario.get("tweets", DEFAULT_STATE_COPY["tweets"])
-        self.tweets = {int(k): v for k, v in self.tweets.items()} # Convert tweet keys from string to int from loaded scenario
-        self.comments = scenario.get("comments", DEFAULT_STATE_COPY["comments"])
-        self.retweets = scenario.get("retweets", DEFAULT_STATE_COPY["retweets"])
-        self.following_list = scenario.get(
-            "following_list", DEFAULT_STATE_COPY["following_list"]
-        )
-        self.tweet_counter = scenario.get(
-            "tweet_counter", DEFAULT_STATE_COPY["tweet_counter"]
-        )
+        if scenario != None:
+            self.username = scenario.get("username", DEFAULT_STATE_COPY["username"])
+            self.password = scenario.get("password", DEFAULT_STATE_COPY["password"])
+            self.authenticated = scenario.get(
+                "authenticated", DEFAULT_STATE_COPY["authenticated"]
+            )
+            self.tweets = scenario.get("tweets", DEFAULT_STATE_COPY["tweets"])
+            self.tweets = {int(k): v for k, v in self.tweets.items()} # Convert tweet keys from string to int from loaded scenario
+            self.comments = scenario.get("comments", DEFAULT_STATE_COPY["comments"])
+            self.retweets = scenario.get("retweets", DEFAULT_STATE_COPY["retweets"])
+            self.following_list = scenario.get(
+                "following_list", DEFAULT_STATE_COPY["following_list"]
+            )
+            self.tweet_counter = scenario.get(
+                "tweet_counter", DEFAULT_STATE_COPY["tweet_counter"]
+            )
+        else:
+            self.username = DEFAULT_STATE_COPY["username"]
+            self.password = DEFAULT_STATE_COPY["password"]
+            self.authenticated = DEFAULT_STATE_COPY["authenticated"]
+            self.tweets = DEFAULT_STATE_COPY["tweets"]
+            self.comments = DEFAULT_STATE_COPY["comments"]
+            self.retweets = DEFAULT_STATE_COPY["retweets"]
+            self.following_list = DEFAULT_STATE_COPY["following_list"]
+            self.tweet_counter = DEFAULT_STATE_COPY["tweet_counter"]
+
 
     def authenticate_twitter(self, username: str, password: str) -> Dict[str, bool]:
         """

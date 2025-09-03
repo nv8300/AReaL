@@ -86,7 +86,7 @@ class StatsLogger:
         for i, item in enumerate(data):
             logger.info(f"Stats ({i+1}/{len(data)}):")
             self.print_stats(item)
-            for k,v in item:
+            for k,v in item.items():
                 writer.add_scalar(k, v, global_step + 1)
             wandb.log(item, step=log_step + i)
             if self.summary_writer is not None:

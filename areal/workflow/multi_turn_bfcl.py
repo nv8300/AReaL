@@ -169,7 +169,8 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 resp = await engine.agenerate(req)
                 end_time = time.time()
                 query_latency = end_time - start_time
-                #logger.info(f"!!! get req for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
+                if len(input_ids) > 15000:
+                    logger.info(f"**** get req for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}\t input_id_len: {len(input_ids)}")
 
 
                 prompt_str = self.tokenizer.decode(input_ids)
