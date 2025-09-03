@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import torch
 import torch.distributed as dist
+from torch.utils.tensorboard import SummaryWriter
 from torchdata.stateful_dataloader import StatefulDataLoader
 
 from areal.api.cli_args import GRPOConfig, load_expr_config
@@ -34,6 +35,8 @@ def gsm8k_reward_fn(prompt, completions, prompt_ids, completion_ids, answer, **k
 def main(args):
     config, _ = load_expr_config(args, GRPOConfig)
     config: GRPOConfig
+
+    writer = SummaryWriter(log_dir=config.cluster.fileroot+'/tf-logs')
 
     rank = int(os.getenv("RANK"))
     world_size = int(os.getenv("WORLD_SIZE"))
@@ -323,7 +326,7 @@ def main(args):
 
         # Upload statistics to the logger (e.g., wandb)
         stats[0].update(stats_tracker.export_all(reduce_group=actor.parallelism_group))
-        stats_logger.commit(epoch, step, global_step, stats)
+        stats_logger.commit(writer, epoch, step, global_step, stats)
 
         logger.info("finish stats_logger commit")
 
