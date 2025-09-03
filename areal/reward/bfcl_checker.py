@@ -1,9 +1,28 @@
+import math
+
 from examples.utils import execute_multi_turn_func_call, is_empty_execute_response
 from areal.utils import logging, stats_tracker  # TODO 检查加入stats_tracker信息是否正确
 
 logger = logging.getLogger("Multi-Turn workflow")
 
 LOG_SCOPE = "reward"
+
+
+def calculate_exponential_rewards(total_rounds: int, base=2.0) -> list:
+    """
+    Exponential growth reward distribution.
+    """
+    S = (base**total_rounds - 1) / (base - 1)
+
+    rewards = [base**(i) / S for i in range(total_rounds)]
+    rewards = [round(reward, 6) for reward in rewards]
+
+    total = sum(rewards)
+    if total != 1.0:
+        rewards[-1] += 1.0 - total
+    
+    return rewards
+
 
 def multi_turn_checker(
     multi_turn_model_result_list_decoded: list[list[list[str]]],
@@ -22,6 +41,11 @@ def multi_turn_checker(
     test_category: str = test_entry_id.rsplit("_", 1)[0]
     execution_results: list[dict] = []
     all_turn_model_execution_results: list[str] = []
+
+
+    total_reward = 0
+    turn_cnt = len(multi_turn_ground_truth_list)
+    rewards_w_turn = calculate_exponential_rewards(turn_cnt)
 
     # First execute all the function calls
     for turn_index, single_turn_ground_truth_list in enumerate(
@@ -105,8 +129,6 @@ def multi_turn_checker(
 
         # Check the state of the instances
         state_check_result = state_checker(model_instances, ground_truth_instances)
-        if not bool(state_check_result):
-            return state_check_result
 
         # Check the response of the function calls
         # We use the all_turn_model_execution_results to accomodate the situation where the model invokes a function in a previous turn, and thus don't need to invoke it again in the current turn.
@@ -115,11 +137,14 @@ def multi_turn_checker(
             single_turn_ground_truth_execution_results,
             turn_index,
         )
-        if not bool(response_check_result):
-            return response_check_result
+        if not bool(response_check_result) and not bool(state_check_result):
+            total_reward += 0
+        elif bool(response_check_result) and bool(state_check_result):
+            total_reward += rewards_w_turn[turn_index]
+        else:
+            total_reward += 0.5 * rewards_w_turn[turn_index]
 
-
-    return 1
+    return total_reward
 
 
 #### Sub-Chekcers ####
