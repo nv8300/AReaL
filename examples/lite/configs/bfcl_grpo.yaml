@@ -88,7 +88,7 @@ ref:
   backend: fsdp
 
 gconfig:
-  n_samples: 4
+  n_samples: 3
   min_new_tokens: 0
   max_new_tokens: 512
   greedy: false
@@ -100,7 +100,7 @@ saver:
   experiment_name: ${experiment_name}
   trial_name: ${trial_name}
   fileroot: ${cluster.fileroot}
-  freq_epochs: 30
+  freq_epochs: 10
   freq_steps: null
   freq_secs: null
 

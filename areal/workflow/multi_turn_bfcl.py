@@ -203,24 +203,25 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 #logger.info(f"current_step_inference_log for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
 
                 # Amend results
-                input_len = len(resp.input_tokens) - len(seq)  # 新增加的输入token数量（当前响应相比之前新增的部分）
-                seq_decode = self.tokenizer.decode(seq)
-                input_decode = self.tokenizer.decode(resp.input_tokens[:-input_len])
-                assert len(seq) == 0 or len(resp.input_tokens[:-input_len]) == len(seq), (
-                    seq_decode,
-                    input_decode,
-                    len(seq),
-                    len(resp.input_tokens[:-input_len]),
-                )
-                seq += resp.input_tokens[-input_len:] + resp.output_tokens
-                logprobs += [0.0] * input_len + resp.output_logprobs
-                loss_mask += [0] * input_len + [1] * resp.output_len
-                versions += [-1] * input_len + resp.output_versions
-                discount *= self.turn_discount
-                #logger.info(f"!!!seq, logprobs, versions, discount process: {discount}  for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
+                try:
+                    input_len = len(resp.input_tokens) - len(seq)  # 新增加的输入token数量（当前响应相比之前新增的部分）
+                    seq_decode = self.tokenizer.decode(seq)
+                    input_decode = self.tokenizer.decode(resp.input_tokens[:-input_len])
+                    assert len(seq) == 0 or len(resp.input_tokens[:-input_len]) == len(seq), (
+                        seq_decode,
+                        input_decode,
+                        len(seq),
+                        len(resp.input_tokens[:-input_len]),
+                    )
+                    seq += resp.input_tokens[-input_len:] + resp.output_tokens
+                    logprobs += [0.0] * input_len + resp.output_logprobs
+                    loss_mask += [0] * input_len + [1] * resp.output_len
+                    versions += [-1] * input_len + resp.output_versions
+                    discount *= self.turn_discount
+                    #logger.info(f"!!!seq, logprobs, versions, discount process: {discount}  for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
 
                 # Try decoding the model response
-                try:
+                # try:
                     decoded_model_responses = default_decode_execute_prompting(model_responses, has_tool_call_tag=False)
                     #logger.info(f"decoded_model_responses for turn_name: {test_entry_id}\t turn_idx: {turn_idx}\t step: {count}")
                     current_turn_model_result_list_decoded.append(decoded_model_responses)
@@ -322,7 +323,8 @@ class MultiTurnWorkflow(RolloutWorkflow):
                 self.model_name 
             )
 
-        reward = float(raw_reward * discount)
+        #reward = float(raw_reward * discount)
+        reward = float(raw_reward)
         
         logger.info(f"!!!! finish reward caculate test_entry_id: {test_entry_id}\tturn_idx:{turn_idx}\traw_reward: {raw_reward}\treward: {reward}\ttotal_step: {all_count}")
         stats_tracker.get(self.rollout_stat_scope).scalar(reward=reward, num_turns=turn_idx, num_steps=all_count)

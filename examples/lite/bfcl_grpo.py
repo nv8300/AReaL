@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 def bfcl_reward_fn(multi_turn_model_result_list_decoded: list[list[list[str]]], multi_turn_ground_truth_list: list[list[str]], test_entry: dict, test_category="multi_turn_base", model_name="qwen") -> int:
     from areal.reward.bfcl_checker import multi_turn_checker
 
-    return int(multi_turn_checker(multi_turn_model_result_list_decoded, multi_turn_ground_truth_list, test_entry, test_category, model_name))
+    return float(multi_turn_checker(multi_turn_model_result_list_decoded, multi_turn_ground_truth_list, test_entry, test_category, model_name))
 
 
 def main(args):
@@ -141,7 +141,7 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig,
         tokenizer=tokenizer,
-        max_steps=2,
+        max_steps=3,
         turn_discount=0.95,
         model_name="qwen",
         dump_dir=os.path.join(
@@ -154,7 +154,7 @@ def main(args):
         reward_fn=bfcl_reward_fn,
         gconfig=config.gconfig.new(temperature=0.6),
         tokenizer=tokenizer,
-        max_steps=2,
+        max_steps=3,
         turn_discount=0.95,
         model_name="qwen",
         rollout_stat_scope="eval-rollout",
@@ -304,17 +304,17 @@ def main(args):
             )
         logger.info("finish evaluate")
 
-        with stats_tracker.record_timing("checkpoint_for_recover"):
-            recover_handler.dump(
-                actor,
-                step_info,
-                saver,
-                evaluator,
-                stats_logger,
-                train_dataloader,
-                tokenizer=tokenizer,
-            )
-        logger.info("finish checkpoint_for_recover")
+        #with stats_tracker.record_timing("checkpoint_for_recover"):
+        #    recover_handler.dump(
+        #        actor,
+        #        step_info,
+        #        saver,
+        #        evaluator,
+        #        stats_logger,
+        #        train_dataloader,
+        #        tokenizer=tokenizer,
+        #    )
+        #logger.info("finish checkpoint_for_recover")
 
         dist.barrier(device_ids=[actor.device.index])
         torch.cuda.synchronize()
