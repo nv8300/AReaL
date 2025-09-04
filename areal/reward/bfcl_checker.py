@@ -140,9 +140,9 @@ def multi_turn_checker(
         if not bool(response_check_result) and not bool(state_check_result):
             total_reward += 0
         elif bool(response_check_result) and bool(state_check_result):
-            total_reward += rewards_w_turn[turn_index]
+            total_reward += rewards_w_turn[turn_index] * (response_check_result + state_check_result) / (2 * turn_cnt)
         else:
-            total_reward += 0.5 * rewards_w_turn[turn_index]
+            total_reward += 0.5 * rewards_w_turn[turn_index] * (response_check_result + state_check_result) / (2 * turn_cnt)
 
     return total_reward
 
@@ -181,7 +181,7 @@ def state_checker(model_instances: dict, ground_truth_instances: dict):
                     })
             return 0
 
-    return 1
+    return valid
 
 
 def response_checker(
@@ -206,7 +206,7 @@ def response_checker(
                     })
         return 0
 
-    return 1
+    return is_subsequence
 
 
 #### Helper functions ####
@@ -219,8 +219,16 @@ def _compare_instances(model_obect, ground_truth_object):
     assert type(model_obect) == type(
         ground_truth_object
     ), "Objects are not of the same type."
+
+    attribute_cnt = 0
+    for attr_name in vars(ground_truth_object):
+        if attr_name.startswith("_"):
+            continue
+        attribute_cnt += 1
+    
+    differences_cnt = 0
     differences = {}
-    valid = True
+    valid = 0
     for attr_name in vars(ground_truth_object):
         # We don't check for private attributes
         if attr_name.startswith("_"):
@@ -231,7 +239,9 @@ def _compare_instances(model_obect, ground_truth_object):
         if model_attr != ground_truth_attr:
             valid = False
             differences[attr_name] = {"model": model_attr, "ground_truth": ground_truth_attr}
+            differences_cnt += 1
 
+    valid = (attribute_cnt - differences_cnt) / attribute_cnt
     return valid, differences
 
 
@@ -245,6 +255,7 @@ def _is_subsequence_unordered(list1, list2) -> tuple[bool, list]:
     
     # Check each item in list1 to see if it exists in list2_copy
     missing_elements = []
+    gt_len = len(list1)
     for item in list1:
         try:
             # Attempt to remove one occurrence of `item` from list2_copy to handle duplicates
@@ -254,5 +265,9 @@ def _is_subsequence_unordered(list1, list2) -> tuple[bool, list]:
             missing_elements.append(item)
     
     # If there are missing elements, list1 is not a subsequence of list2
-    is_subsequence = len(missing_elements) == 0
+    if len(missing_elements) == 0:
+        is_subsequence = 1
+    else:
+        me_len = len(missing_elements)
+        is_subsequence = (gt_len - me_len)/ gt_len
     return is_subsequence, missing_elements
