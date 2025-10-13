@@ -864,3 +864,13 @@ def conf_as_dict(cfg):
     if isinstance(cfg, (OmegaConf, DictConfig)):
         return OmegaConf.to_container(cfg, resolve=True)
     return asdict(cfg)
+
+
+@dataclass
+class RMTrainEngineConfig(TrainEngineConfig):
+    model_type: str = field(default="reward_model", metadata={"help": "Model type"})
+
+
+@dataclass
+class RMPairedConfig(BaseExperimentConfig):
+    model: RMTrainEngineConfig = field(default_factory=RMTrainEngineConfig)

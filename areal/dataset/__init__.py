@@ -55,7 +55,18 @@ def get_custom_dataset(
             max_length=max_length,
             **kwargs,
         )
+    elif "rm_paired" in path and type == "sft":
+        from .rm_paired import get_rm_paired_dataset
 
+        return get_rm_paired_dataset(
+            path=path,
+            split=split,
+            tokenizer=tokenizer,
+            rank=rank,
+            world_size=world_size,
+            max_length=max_length,
+            **kwargs,
+        )
     elif "clevr_count_70k" in path and type == "sft":
         from .clevr_count_70k import get_clevr_count_70k_sft_dataset
 

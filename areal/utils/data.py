@@ -55,6 +55,43 @@ def list_of_dict2dict_of_list(
     return {key: [dict_item[key] for dict_item in list_of_dicts] for key in keys}
 
 
+def pad_rm_paired_sequences_to_tensors(
+    sequence_list: List[TensorDict], pad_value: float = 0.0
+) -> TensorDict:
+    if not sequence_list:
+        return TensorDict()
+    concat_keys = {"input_pos_ids", "input_neg_ids"}
+    max_length = max(
+        len(seq)
+        for item in sequence_list
+        for key, seq in item.items()
+    )
+    result = {}
+    padded = []
+    attention_mask = []
+    for item in sequence_list:
+        concat_padded_tensors = []
+        concat_attention_tensors = []
+        for itme_key in concat_keys:
+            x = item[itme_key]
+            if not torch.is_tensor(x):
+                x = torch.tensor(x)
+            padded_x = torch.nn.functional.pad(
+                x, (0, max_length - len(item[itme_key])), value=pad_value
+            )
+            attention_mask_x = torch.tensor([1] * len(x) + [0] * (max_length - len(x)), dtype=torch.bool)
+            concat_padded_tensors.append(padded_x)
+            concat_attention_tensors.append(attention_mask_x)
+        concatenated_padded_tensors = torch.cat(concat_padded_tensors, dim=0)
+        concatenated_attention_tensors = torch.cat(concat_attention_tensors, dim=0)
+        padded.append(concatenated_padded_tensors)
+        attention_mask.append(concatenated_attention_tensors)
+    result["input_ids"] = torch.stack(padded)
+    result["attention_mask"] = torch.stack(attention_mask)
+    
+    return TensorDict(result, batch_size=[result["attention_mask"].shape[0]])
+
+
 def pad_sequences_to_tensors(
     sequence_list: List[TensorDict], pad_value: float = 0.0
 ) -> TensorDict:
@@ -395,6 +432,116 @@ class MicroBatchList:
 
 
 DEFAULT_MAX_TOKENS_PER_GPU = int(1e12)
+
+
+def split_padded_paired_tensor_dict_into_mb_list(
+    data: TensorDict,
+    mb_spec: MicroBatchSpec,
+    group: Optional[dist.ProcessGroup] = None,
+) -> MicroBatchList:
+    """Split a padded tensordict pair consisting of two consecutive data into micro-batches based on the attention mask.
+
+    Args:
+        data (TensorDict): Dictionary containing padded tensors.
+        mb_spec (MicroBatchSpec): Specification for micro-batch splitting.
+        group (Optional[dist.ProcessGroup]): Process group for distributed synchronization.
+
+    Returns:
+        MicroBatchList: A structure containing the split micro-batches and metadata.
+    """
+    assert (
+        "attention_mask" in data
+    ), "Input data must be padded and contain 'attention_mask' key."
+    if mb_spec.max_tokens_per_gpu is None:
+        mb_spec = MicroBatchSpec.new(
+            mb_spec, max_tokens_per_gpu=DEFAULT_MAX_TOKENS_PER_GPU
+        )
+    bs = data["attention_mask"].shape[0]
+    assert bs % 2 == 0, len(bs) # check the data seize must be an even number to form a complete pair
+    max_seqlen = data["attention_mask"].shape[1]
+    input_lens = data["attention_mask"].sum(1).long().cpu().numpy()
+
+    paired_indices = [[i, i+1] for i in range(0, bs, 2)]
+    pair_lens = [input_lens[i] + input_lens[i+1] for i in range(0, bs, 2)]
+
+    # check tensor shape, split only 1d tensors with length "total_lens"
+    to_split = {}
+    not_to_split = {}
+    for key, value in data.items():
+        if key == "multi_modal_input":
+            continue
+        if key == "position_ids" or (
+            torch.is_tensor(value) and value.numel() == bs * max_seqlen
+        ):
+            # NOTE: qwen2.5-vl position_ids.numel() == bs * max_seqlen * 3
+            to_split[key] = value
+        else:
+            not_to_split[key] = value
+    
+    # split
+    paired_group_indices = allocate_balanced_mbs_synced(mb_spec, pair_lens, group=group)
+    group_indices = []
+    for pair_group in paired_group_indices:
+        sample_indices = []
+        for pair_idx in pair_group:
+            sample_indices.extend(paired_indices[pair_idx])
+        group_indices.append(sample_indices)
+    
+    splitted_lens = [
+        [input_lens[i] for i in group_index] for group_index in group_indices
+    ]
+    group_n_seqs = [len(x) for x in splitted_lens]
+    group_lens = [sum(x) for x in splitted_lens]
+
+    forward_indices = datapack.flat2d(group_indices)
+    backward_indices = np.zeros(bs, dtype=np.int64)
+    backward_indices[forward_indices] = np.arange(bs)
+
+    def _split(tensor):
+        """Split and pad a tensor based on forward indices and lens."""
+        # Unpack the sequence
+        unpacked = [tensor[i] for i in range(bs)]
+        # Reorder according to forward indices
+        reordered = reorder_list(unpacked, forward_indices)
+        reordered = torch.stack(reordered)
+        # Unpack again according to split lens
+        splitted = []
+        offset = 0
+        for _n_seqs in group_n_seqs:
+            splitted.append(reordered[offset : offset + _n_seqs])
+            offset += _n_seqs
+        return splitted
+
+    to_split = dict_map(to_split, lambda x: _split(x))
+
+    if "multi_modal_input" in data:
+        multi_modal_input = data["multi_modal_input"]
+
+        # Prepare the pixel_values and image_grid_thw for each group
+        multi_modal_input_split = []
+
+        for group_index in group_indices:
+            group_pixel_multi_modal_input = [multi_modal_input[i] for i in group_index]
+            # Stack pixel_values for each group (assuming pixel_values is a list of tensors)
+            multi_modal_input_split.append(group_pixel_multi_modal_input)
+        # Pack the split pixel_values and image_grid_thw back into the data
+        to_split["multi_modal_input"] = multi_modal_input_split
+    mbs = dict_of_list2list_of_dict(to_split)
+
+    results = []
+    # organize splitted micro batches
+    assert len(mbs) == len(splitted_lens), (len(mbs), len(splitted_lens))
+    for i, (mb, lens) in enumerate(zip(mbs, splitted_lens)):
+        results.append(TensorDict(**mb, **not_to_split))
+
+    return MicroBatchList(
+        data=data,
+        mb_spec=mb_spec,
+        mbs=results,
+        forward_indices=forward_indices,
+        backward_indices=backward_indices.tolist(),
+        group_lens=group_lens,
+    )
 
 
 def split_padded_tensor_dict_into_mb_list(

@@ -27,6 +27,7 @@ from areal.utils.fsdp import (
     fsdp2_clip_grad_norm_,
     fsdp2_load_full_state_dict,
 )
+from areal.utils.model import is_rm_model
 from areal.utils.save_load import get_state_dict_from_repo_id_or_path
 
 logger = logging.getLogger("FSDPEngine")
@@ -246,7 +247,10 @@ class FSDPEngine(BaseHFEngine):
         assert self.lr_scheduler is not None
 
         self.optimizer.zero_grad()
-        mb_list = self.prepare_mb_list(input_)
+        if is_rm_model(self.config.model_type):
+            mb_list = self.prepare_rm_paired_mb_list(input_)
+        else:
+            mb_list = self.prepare_mb_list(input_)
 
         total_loss_weight = torch.tensor(
             sum([loss_weight_fn(mb) for mb in mb_list.mbs]), dtype=torch.float32

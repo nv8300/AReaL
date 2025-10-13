@@ -28,6 +28,7 @@ from areal.utils.data import (
     pad_mb_list,
     reorder_list,
     split_padded_tensor_dict_into_mb_list,
+    split_padded_paired_tensor_dict_into_mb_list,
     unpack_sequence,
     unsqueeze_mb_list,
 )
@@ -37,6 +38,9 @@ from areal.utils.model import (
     VALID_VISION_MODELS,
     disable_dropout_in_model,
     is_qwen2_vl_model,
+    ModelWithRewardModelHead,
+    RewardModelHead,
+    is_rm_model,
 )
 from areal.utils.nccl import NCCL_DEFAULT_TIMEOUT
 
@@ -139,6 +143,8 @@ class BaseHFEngine(TrainEngine):
                     # NOTE: VLM cannot directly load state dict using this
                     # random initialized model, so otherwise we call
                     # from_pretrained rather than loading weights into this random model.
+                    if hasattr(self.model_config, 'output_hidden_states'):
+                        self.model_config.output_hidden_states = True
                     model = AutoModelForCausalLM.from_config(
                         self.model_config,
                         torch_dtype=dtype,
@@ -150,10 +156,20 @@ class BaseHFEngine(TrainEngine):
                         trust_remote_code=True,
                         torch_dtype=dtype,
                         attn_implementation=self.config.attn_impl,
+                        output_hidden_states=True
                     )
                 if self.config.disable_dropout:
                     disable_dropout_in_model(model)
-
+                if is_rm_model(self.config.model_type):
+                    hidden_size = model.config.hidden_size
+                    reward_model_head = RewardModelHead(
+                        hidden_size,
+                        1,
+                        bias=False,
+                        device=self.device,
+                        dtype=dtype,
+                    )
+                    model = ModelWithRewardModelHead(model, reward_model_head)
         if self.config.gradient_checkpointing:
             model.gradient_checkpointing_enable(
                 gradient_checkpointing_kwargs={"use_reentrant": False}
@@ -253,6 +269,85 @@ class BaseHFEngine(TrainEngine):
     def step_lr_scheduler(self):
         assert self.lr_scheduler is not None
         self.lr_scheduler.step()
+    
+    def split_rm_paired_with_order(self, input_: TensorDict) -> TensorDict:
+        input_ids = input_["input_ids"]
+        bs = input_ids.shape[0]
+        total_seqlen = input_ids.shape[1]
+        assert total_seqlen % 2 == 0, len(total_seqlen)
+        seqlen = total_seqlen // 2
+
+        split_input_ids_list = []
+        split_attention_mask_list = []
+
+        for idx in range(bs):
+            sample_input_ids = input_ids[idx]
+            sample_attention_mask = input_["attention_mask"][idx]
+
+            pos_input = sample_input_ids[:seqlen]
+            neg_input = sample_input_ids[seqlen:]
+            pos_mask = sample_attention_mask[:seqlen]
+            neg_mask = sample_attention_mask[seqlen:]
+
+            split_input_ids_list.extend([pos_input, neg_input])
+            split_attention_mask_list.extend([pos_mask, neg_mask])
+
+        split_input_ids = torch.stack(split_input_ids_list, dim=0)
+        split_attention_mask = torch.stack(split_attention_mask_list, dim=0)
+
+        split_input_ = TensorDict(
+            {
+                "input_ids": split_input_ids,
+                "attention_mask": split_attention_mask
+            },
+            batch_size=[split_input_ids.shape[0]]
+        )
+        return split_input_
+
+    def prepare_rm_paired_mb_list(self, paired_input_: TensorDict) -> MicroBatchList:
+        assert "attention_mask" in paired_input_ and "input_ids" in paired_input_
+
+        if isinstance(paired_input_, dict):
+            paired_input_ = TensorDict(paired_input_, batch_size=[paired_input_["input_ids"].shape[0]])
+        
+        input_ = self.split_rm_paired_with_order(paired_input_)
+        input_ = amend_position_ids(input_)
+        mb_list = split_padded_paired_tensor_dict_into_mb_list(input_, self.config.mb_spec)
+        mb_list.mbs = [pack_tensor_dict(mb) for mb in mb_list.mbs]
+        mb_list = pad_mb_list(
+            mb_list,
+            pad_value=0.0,
+            pad_to_maximum=self.config.pad_to_maximum,
+        )
+        logger.info(
+            f"Microbatch #tokens (rank {dist.get_rank()}): {mb_list.group_lens}, "
+            f"padded to: {mb_list.padded_to_lengths}, padding lengths: {mb_list.padding_lengths}"
+        )
+        # NOTE: We unsqueeze here because huggingface transformer models requires
+        # packed input to be of shape [1, total_seqlen].
+        mb_list = unsqueeze_mb_list(mb_list)
+
+        # FIXME: the resulting max_seqlen is a tensor rather than an integer
+        # TODO: remove the usage of tensordict
+        # Modern model implementations takes a dict as the input.
+        # This eliminates a bug of Qwen2.5-VL for transformers<=4.53.1
+        for i, mb in enumerate(mb_list.mbs):
+            mb_list.mbs[i] = dict(**mb)
+        for i, mb in enumerate(mb_list.padded_mbs):
+            mb_list.padded_mbs[i] = dict(**mb)
+        for mb, padded_mb in zip(mb_list.mbs, mb_list.padded_mbs):
+            mb["max_seqlen"] = int(mb["max_seqlen"])
+            padded_mb["max_seqlen"] = int(padded_mb["max_seqlen"])
+            mb["cu_seqlens_q"] = mb["cu_seqlens_k"] = mb["cu_seqlens"]
+            padded_mb["cu_seqlens_q"] = padded_mb["cu_seqlens_k"] = padded_mb[
+                "cu_seqlens"
+            ]
+            mb["use_cache"] = False
+            padded_mb["use_cache"] = False
+            mb["attention_mask"] = dict(full_attention=None)
+            padded_mb["attention_mask"] = dict(full_attention=None)
+        return mb_list
+
 
     def prepare_mb_list(self, input_: TensorDict) -> MicroBatchList:
         assert "attention_mask" in input_ and "input_ids" in input_
