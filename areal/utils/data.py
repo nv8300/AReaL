@@ -457,13 +457,12 @@ def split_padded_paired_tensor_dict_into_mb_list(
             mb_spec, max_tokens_per_gpu=DEFAULT_MAX_TOKENS_PER_GPU
         )
     bs = data["attention_mask"].shape[0]
-    assert bs % 2 == 0, len(bs) # check the data seize must be an even number to form a complete pair
+    assert bs % 2 == 0, len(bs) # check the data size must be an even number to form a complete pair
     max_seqlen = data["attention_mask"].shape[1]
     input_lens = data["attention_mask"].sum(1).long().cpu().numpy()
 
     paired_indices = [[i, i+1] for i in range(0, bs, 2)]
     pair_lens = [input_lens[i] + input_lens[i+1] for i in range(0, bs, 2)]
-
     # check tensor shape, split only 1d tensors with length "total_lens"
     to_split = {}
     not_to_split = {}

@@ -269,6 +269,7 @@ class BaseHFEngine(TrainEngine):
     def step_lr_scheduler(self):
         assert self.lr_scheduler is not None
         self.lr_scheduler.step()
+<<<<<<< HEAD
     
     def split_rm_paired_with_order(self, input_: TensorDict) -> TensorDict:
         input_ids = input_["input_ids"]
@@ -348,6 +349,8 @@ class BaseHFEngine(TrainEngine):
             padded_mb["attention_mask"] = dict(full_attention=None)
         return mb_list
 
+=======
+>>>>>>> 2995b195b942dd34bacccd228764603dc72c2ddf
 
     def prepare_mb_list(self, input_: TensorDict) -> MicroBatchList:
         assert "attention_mask" in input_ and "input_ids" in input_

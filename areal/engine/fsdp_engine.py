@@ -247,6 +247,7 @@ class FSDPEngine(BaseHFEngine):
         assert self.lr_scheduler is not None
 
         self.optimizer.zero_grad()
+
         if is_rm_model(self.config.model_type):
             mb_list = self.prepare_rm_paired_mb_list(input_)
         else:

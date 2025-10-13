@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 VALID_VISION_MODELS = [
     "qwen2_vl",
     "qwen2_5_vl",
