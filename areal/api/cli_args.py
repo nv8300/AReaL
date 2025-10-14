@@ -207,6 +207,7 @@ class TrainEngineConfig:
     experiment_name: str = MISSING
     trial_name: str = MISSING
     path: str = field(default="", metadata={"help": "Path to HuggingFace checkpoint"})
+    model_type: str = field(default="auto", metadata={"help": "Model type"})
     attn_impl: str = field(
         default="flash_attention_2",
         metadata={
