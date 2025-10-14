@@ -177,3 +177,5 @@ def main(args):
     logger.info("FINISH")
 
 
+if __name__ == "__main__":
+    main(sys.argv[1:])
