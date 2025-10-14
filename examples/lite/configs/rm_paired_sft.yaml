@@ -38,7 +38,7 @@ train_dataset:
   shuffle: true
   pin_memory: true
   num_workers: 4
-  path: areal/dataset/data/rm_paired_train.jsonl
+  path: areal/dataset/data/rm_paired-train.jsonl
   type: sft
 
 valid_dataset:
@@ -46,7 +46,7 @@ valid_dataset:
   shuffle: true
   pin_memory: true
   num_workers: 4
-  path: areal/dataset/data/rm_paired_valid.jsonl
+  path: areal/dataset/data/rm_paired-valid.jsonl
   type: sft
 
 # Utilities
