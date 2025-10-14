@@ -1,11 +1,11 @@
 experiment_name: rm_paired-sft
 trial_name: trial0
 
-allocation_mode: d8p1t1
+allocation_mode: d2p1t1
 cluster:
   fileroot: /tmp/areal/experiments
   n_nodes: 1
-  n_gpus_per_node: 8
+  n_gpus_per_node: 2
   name_resolve:
     type: nfs
     nfs_record_root: /tmp/areal/name_resolve
