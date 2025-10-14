@@ -1,6 +1,7 @@
 import os
 import sys
 
+from torch.utils.tensorboard import SummaryWriter
 from torchdata.stateful_dataloader import StatefulDataLoader
 
 from areal.api.cli_args import RMPairedConfig, load_expr_config
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 def main(args):
     config, _ = load_expr_config(args, RMPairedConfig)
     config: RMPairedConfig
+
+    writer = SummaryWriter(log_dir=config.cluster.fileroot+'/tf-logs')
 
     rank = int(os.getenv("RANK"))
     world_size = int(os.getenv("WORLD_SIZE"))
@@ -159,6 +162,7 @@ def main(args):
                 )
 
             stats_logger.commit(
+                writer,
                 epoch,
                 step,
                 global_step,

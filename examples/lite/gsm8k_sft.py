@@ -1,6 +1,7 @@
 import os
 import sys
 
+from torch.utils.tensorboard import SummaryWriter
 from torchdata.stateful_dataloader import StatefulDataLoader
 
 from areal.api.cli_args import SFTConfig, load_expr_config
@@ -19,6 +20,8 @@ from areal.utils.stats_logger import StatsLogger
 def main(args):
     config, _ = load_expr_config(args, SFTConfig)
     config: SFTConfig
+
+    writer = SummaryWriter(log_dir=config.cluster.fileroot+'/tf-logs')
 
     rank = int(os.getenv("RANK"))
     world_size = int(os.getenv("WORLD_SIZE"))
@@ -142,6 +145,7 @@ def main(args):
                 )
 
             stats_logger.commit(
+                writer,
                 epoch,
                 step,
                 global_step,
