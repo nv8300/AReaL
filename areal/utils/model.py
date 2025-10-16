@@ -34,6 +34,10 @@ class ModelWithRewardModelHead(nn.Module):
         super().__init__()
         self.base_model = base_model
         self.reward_model_head = reward_model_head
+
+        if hasattr(base_model, "_no_split_modules"):
+            self._no_split_modules = base_model._no_split_modules
+        self.config = base_model.config
         
     def forward(self, *args, **kwargs):
         output = self.base_model(*args, **kwargs)
