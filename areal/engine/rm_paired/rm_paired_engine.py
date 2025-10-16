@@ -6,6 +6,11 @@ from areal.api.cli_args import TrainEngineConfig
 from areal.api.engine_api import TrainEngine
 from areal.engine.fsdp_engine import FSDPEngine
 from areal.utils import stats_tracker
+from areal.utils import logging
+
+
+logger = logging.getLogger(__name__)
+
 
 class RMPairedEngine:
     def __init__(self, engine: TrainEngine):
@@ -38,25 +43,26 @@ class FSDPRMPairedEngine(FSDPEngine):
     def evaluate_rm_paired(self, data: TensorDict):
         return self.rm_paired_engine.evaluate_rm_paired(data)
     
-def compute_rm_paired_loss(scores: torch.Tensor, input_: TensorDict) -> torch.Tensor:
+def compute_rm_paired_loss(logits: torch.Tensor, input_: TensorDict) -> torch.Tensor:
     packed_input_ids: torch.Tensor = input_["input_ids"]
     cu_seqlens: torch.Tensor = input_["cu_seqlens"]
     
-    scores = scores[cu_seqlens[1:] - 1].squeeze(1) 
+    scores = logits[cu_seqlens[1:] - 1].squeeze(1) 
 
     assert scores.shape[0] % 2 == 0, len(scores.shape) # check the data size must be an even number to form a complete pair
     seqlens = scores.shape[0] // 2
     scores = scores.view(seqlens, 2)
 
-    loss = -(torch.nn.functional.logsigmoid(scores[:, 0] - scores[:, 1])).sum()
+    per_sample_loss = -(torch.nn.functional.logsigmoid(scores[:, 0] - scores[:, 1]))
+    loss = per_sample_loss.sum().to(device=logits.device)
 
     ## Loggin stats
     stats_tracker.denominator(
         n_seqs=torch.ones(
-            cu_seqlens.shape[0] - 1, dtype=torch.bool, device=scores.device
+            seqlens, dtype=torch.bool, device=logits.device
         ),
     )
-    stats_tracker.stat(loss=-(torch.nn.functional.logsigmoid(scores[:, 0] - scores[:, 1])).detach(), denominator="n_seqs")
+    stats_tracker.stat(loss=per_sample_loss.detach(), denominator="n_seqs")
 
     return loss
 

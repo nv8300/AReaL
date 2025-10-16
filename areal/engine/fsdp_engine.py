@@ -254,7 +254,7 @@ class FSDPEngine(BaseHFEngine):
             mb_list = self.prepare_mb_list(input_)
 
         total_loss_weight = torch.tensor(
-            sum([loss_weight_fn(mb) for mb in mb_list.mbs]), dtype=torch.float32
+            sum([loss_weight_fn(mb) for mb in mb_list.mbs]), dtype=torch.float32, device=self.device
         )
         assert total_loss_weight != 0
         dist.all_reduce(total_loss_weight)
@@ -297,3 +297,39 @@ class FSDPEngine(BaseHFEngine):
             grad_norm=float(grad_norm) if grad_norm is not None else float("nan"),
             lr=current_lr,
         )
+
+    @torch.no_grad()
+    def eval_batch(
+        self,
+        input_: TensorDict,
+        loss_fn: Callable[[torch.Tensor, TensorDict], torch.Tensor],
+        loss_weight_fn: Callable[[TensorDict], float],
+    ) -> torch.Tensor | None:
+        """Evaluate on a batch."""
+        input_ = input_.to(self.device)
+        if is_rm_model(self.config.model_type):
+            mb_list = self.prepare_rm_paired_mb_list(input_)
+        else:
+            mb_list = self.prepare_mb_list(input_)
+        total_loss_weight = torch.tensor(
+            sum([loss_weight_fn(mb) for mb in mb_list.mbs]), dtype=torch.float32
+        )
+        assert total_loss_weight != 0
+
+        total_loss = 0.0
+        total_weight = 0.0
+
+        for pad_length, padded_mb_input, mb_input in zip(
+            mb_list.padding_lengths, mb_list.padded_mbs, mb_list.mbs
+        ):
+            outputs = self.model(**padded_mb_input)
+            logits = outputs.logits.squeeze(0)
+            logits = logits[:-pad_length] if pad_length > 0 else logits
+            loss = loss_fn(logits, mb_input)
+
+            # Simple weight calculation (could be improved)
+            loss_scale = loss_weight_fn(mb_input) / total_loss_weight
+            total_loss += loss.item() * loss_scale
+            total_weight += loss_scale
+
+        return torch.tensor(total_loss / total_weight)

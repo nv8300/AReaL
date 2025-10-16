@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 
 VALID_VISION_MODELS = [
@@ -27,7 +28,7 @@ def disable_dropout_in_model(model: torch.nn.Module) -> None:
 class RewardModelHead(nn.Linear):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         output = nn.functional.linear(hidden_states, self.weight, self.bias)
-        return output
+        return output.float()
 
 class ModelWithRewardModelHead(nn.Module):
     def __init__(self, base_model: nn.Module, reward_model_head: RewardModelHead):
@@ -42,9 +43,14 @@ class ModelWithRewardModelHead(nn.Module):
     def forward(self, *args, **kwargs):
         output = self.base_model(*args, **kwargs)
         if hasattr(output, 'hidden_states'):
-            output = self.reward_model_head(output.hidden_states[-1])
+            reward_logits = self.reward_model_head(output.hidden_states[-1])
         elif hasattr(output, 'last_hidden_state'):
-            output = self.reward_model_head(output.last_hidden_state)
+            reward_logits = self.reward_model_head(output.last_hidden_state)
         else:
             raise ValueError("Model output does not have hidden_states or last_hidden_state")
-        return output
+        return CausalLMOutputWithPast(
+            logits=reward_logits,
+            past_key_values=getattr(output, 'past_key_values', None),
+            hidden_states=getattr(output, 'hidden_states', None),
+            attentions=getattr(output, 'attentions', None),
+        )
