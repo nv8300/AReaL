@@ -169,7 +169,8 @@ class BaseHFEngine(TrainEngine):
                         device=self.device,
                         dtype=dtype,
                     )
-                    model = ModelWithRewardModelHead(model, reward_model_head)
+                    rm_base_model_copy = model
+                    model = ModelWithRewardModelHead(rm_base_model_copy, reward_model_head)
         if self.config.gradient_checkpointing:
             model.gradient_checkpointing_enable(
                 gradient_checkpointing_kwargs={"use_reentrant": False}
