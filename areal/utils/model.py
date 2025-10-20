@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 from transformers import PreTrainedModel
@@ -57,7 +59,7 @@ class ModelWithRewardModelHead(nn.Module):
     def save_pretrained(self, save_directory, **kwargs):
         self.base_model.save_pretrained(save_directory, **kwargs)
         reward_head_path = os.path.join(save_directory, "reward_head.pt")
-        torch.save(self.reward_head.state_dict(), reward_head_path)
+        torch.save(self.reward_model_head.state_dict(), reward_head_path)
         config_path = os.path.join(save_directory, "config.json")
         with open(config_path, 'w') as f:
             f.write(self.config.to_json_string())

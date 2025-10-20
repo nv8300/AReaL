@@ -51,18 +51,25 @@ def compute_rm_paired_loss(logits: torch.Tensor, input_: TensorDict) -> torch.Te
 
     assert scores.shape[0] % 2 == 0, len(scores.shape) # check the data size must be an even number to form a complete pair
     seqlens = scores.shape[0] // 2
-    scores = scores.view(seqlens, 2)
+    scores = scores.view(seqlens, 2).float()
 
     per_sample_loss = -(torch.nn.functional.logsigmoid(scores[:, 0] - scores[:, 1]))
-    loss = per_sample_loss.sum().to(device=logits.device)
+    loss = per_sample_loss.mean().to(device=logits.device)
+    pos_score = scores[:, 0]
+    neg_score = scores[:, 1]
+    correct_predictions = (pos_score > neg_score)
 
     ## Loggin stats
-    stats_tracker.denominator(
-        n_seqs=torch.ones(
-            seqlens, dtype=torch.bool, device=logits.device
-        ),
-    )
-    stats_tracker.stat(loss=per_sample_loss.detach(), denominator="n_seqs")
+    with torch.no_grad():
+        stats_tracker.denominator(
+            n_seqs=torch.ones(
+                seqlens, dtype=torch.bool, device=logits.device
+            ),
+        )
+        stats_tracker.stat(loss=per_sample_loss.detach(), denominator="n_seqs")
+        stats_tracker.stat(pos_score=pos_score.detach(), denominator="n_seqs")
+        stats_tracker.stat(neg_score=neg_score.detach(), denominator="n_seqs")
+        stats_tracker.stat(correct_predictions=correct_predictions.detach(), denominator="n_seqs")
 
     return loss
 
