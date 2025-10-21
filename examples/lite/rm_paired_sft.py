@@ -30,7 +30,6 @@ def main(args):
     rank = int(os.getenv("RANK"))
     world_size = int(os.getenv("WORLD_SIZE"))
     tokenizer = load_hf_tokenizer(config.tokenizer_path)
-    logger.info("finish tokenizer")
 
     seeding.set_random_seed(config.seed, f"trainer{rank}")
 
@@ -76,7 +75,6 @@ def main(args):
         dataset_size=len(train_dataloader) * config.train_dataset.batch_size,
         train_batch_size=config.train_dataset.batch_size,
     )
-    logger.info("finish StatefulDataLoader")
 
     engine = FSDPRMPairedEngine(config=config.model)
     engine.initialize(None, ft_spec)
@@ -95,7 +93,6 @@ def main(args):
         stats_logger,
         train_dataloader,
     )
-    logger.info("finish saver&evaluator&recover_handler")
     start_step = (
         recover_info.last_step_info.next().global_step
         if recover_info is not None
@@ -104,13 +101,10 @@ def main(args):
 
     total_epochs = config.total_train_epochs
     len(train_dataloader)
-    logger.info("finish start_step")
 
     global_step = 0
     for epoch in range(total_epochs):
-        logger.info(f"start epoch: {epoch}")
         for step, data in enumerate(train_dataloader):
-            logger.info(f"start step: {step}")
             if global_step < start_step:
                 global_step += 1
                 continue
@@ -120,7 +114,6 @@ def main(args):
                 epoch_step=step,
                 steps_per_epoch=len(train_dataloader),
             )
-            logger.info(f"finish {epoch}/{step} step_info")
             with (
                 stats_tracker.record_timing("train_step"),
                 stats_tracker.scope("sft"),
@@ -132,7 +125,6 @@ def main(args):
 
             with stats_tracker.record_timing("save"):
                 saver.save(engine, epoch, step, global_step, tokenizer=tokenizer)
-            logger.info(f"finish {epoch}/{step} save")
 
             with stats_tracker.record_timing("eval"):
                 # No need to log anything. Logging will be handled outside
@@ -148,7 +140,6 @@ def main(args):
                     step,
                     global_step,
                 )
-            logger.info(f"finish {epoch}/{step} evaluate")
 
             with stats_tracker.record_timing("checkpoint_for_recover"):
                 recover_handler.dump(
@@ -171,7 +162,6 @@ def main(args):
             logger.info(f"finish {epoch}/{step} stats_logger")
             global_step += 1
     
-    logger.info("finish all epoch")
     stats_logger.close()
     engine.destroy()
     logger.info("FINISH")
